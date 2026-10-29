@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install VLC for live playback tests
+        run: choco install vlc --yes --no-progress --limit-output
       - name: Build OBS 31 SDK and Windows x64 plugin
         run: python scripts/build.py
       - name: Build and test installer
@@ -32,7 +34,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config qt6-base-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev libx11-dev libx11-xcb-dev libxcb1-dev libxcb-xinput-dev libxext-dev libgl1-mesa-dev libegl1-mesa-dev libjansson-dev libsimde-dev uthash-dev uuid-dev libglib2.0-dev zlib1g-dev xvfb
+          sudo apt-get install -y ninja-build pkg-config qt6-base-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev libx11-dev libx11-xcb-dev libxcb1-dev libxcb-xinput-dev libxext-dev libgl1-mesa-dev libegl1-mesa-dev libjansson-dev libsimde-dev uthash-dev uuid-dev libglib2.0-dev zlib1g-dev xvfb vlc
       - name: Build OBS 31 SDK, run tests and package
         run: xvfb-run -a python3 scripts/build.py --test
       - name: Build and test installer
