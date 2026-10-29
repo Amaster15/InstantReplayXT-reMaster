@@ -7,19 +7,19 @@
 [Setup]
 AppId={{6D1D9A87-2C13-4BE8-A2B7-F0E2281C8935}
 AppName=Instant Replay XT for OBS
-AppVersion=2.0.3
+AppVersion=2.0.4
 AppPublisher=InstantReplayXT-reMaster contributors
 AppPublisherURL=https://github.com/Amaster15/InstantReplayXT-reMaster
 DefaultDirName={commonappdata}\obs-studio\plugins\InstantReplay
-DisableDirPage=yes
-UsePreviousAppDir=no
+DisableDirPage=no
+UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputDir}
-OutputBaseFilename=InstantReplayXT-2.0.3-obs31-windows-x64-setup
+OutputBaseFilename=InstantReplayXT-2.0.4-obs31-windows-x64-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -28,6 +28,9 @@ UninstallFilesDir={app}\uninstall
 CloseApplications=yes
 RestartApplications=no
 InfoBeforeFile=windows-notice.txt
+
+[Messages]
+SelectDirLabel3=Choose the InstantReplay plugin folder. Keep the default for standard OBS. A custom folder must be in a plugin search location configured in OBS; this does not choose where video clips are saved.
 
 [Files]
 Source: "{#PackageDir}\InstantReplay\bin\64bit\InstantReplay.dll"; DestDir: "{app}\bin\64bit"; Flags: ignoreversion
@@ -69,6 +72,15 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var OldFile, BackupDir: String;
 begin
   Result := '';
+  if CompareText(ExtractFileName(RemoveBackslashUnlessRoot(ExpandConstant('{app}'))), 'InstantReplay') <> 0 then begin
+    Result := 'Choose a dedicated folder named InstantReplay, inside an OBS plugin search folder.';
+    Exit;
+  end;
+  if (CompareText(ExpandConstant('{app}'), ExpandConstant('{commonappdata}\obs-studio\plugins\InstantReplay')) <> 0) and
+     FileExists(ExpandConstant('{commonappdata}\obs-studio\plugins\InstantReplay\bin\64bit\InstantReplay.dll')) then begin
+    Result := 'A copy is installed in the standard OBS plugin folder. Uninstall it before moving to a different folder to avoid loading two copies. OBS settings and clips are preserved.';
+    Exit;
+  end;
   if OBSRunning() then begin
     Result := 'Close OBS Studio before continuing.';
     Exit;

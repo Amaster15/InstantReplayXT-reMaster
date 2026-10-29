@@ -2,8 +2,10 @@ Instant Replay XT for OBS Studio 31 and newer
 
 Close OBS Studio before continuing.
 
-This installer places the plugin in the standard shared OBS plugin folder:
+The recommended installation folder is the standard shared OBS plugin folder:
 C:\ProgramData\obs-studio\plugins\InstantReplay
+
+Setup now offers a destination folder selector. Keep the default unless you have configured OBS to search another plugin location. The final folder must be named InstantReplay. Selecting an arbitrary folder does not make OBS load plugins from it. This option does not set the replay video folder. Upgrades remember your previous destination; uninstall before moving an existing installation.
 
 This is for standard Windows x64 OBS installations, including Windows 10 with OBS 32. Portable OBS is not supported by this installer; use the ZIP package for portable installations.
 
