@@ -17,7 +17,7 @@ def main():
     parser.add_argument('--platform', choices=('windows', 'linux'), required=True)
     parser.add_argument('--iscc', help='Path to Inno Setup 6 ISCC.exe')
     args = parser.parse_args()
-    name = 'InstantReplayXT-2.0.2-obs31-' + args.platform + '-x64'
+    name = 'InstantReplayXT-2.0.3-obs31-' + args.platform + '-x64'
     artifacts = ROOT / 'artifacts'
     package = artifacts / (name + ('.zip' if args.platform == 'windows' else '.tar.gz'))
     payload = package.read_bytes()
@@ -50,7 +50,7 @@ def main():
             raise RuntimeError('Install Inno Setup 6 or pass --iscc PATH')
         subprocess.run([iscc, '/DPackageDir=' + str(stage), '/DOutputDir=' + str(artifacts),
                         str(ROOT / 'installers/windows.iss')], check=True)
-        output = artifacts / 'InstantReplayXT-2.0.2-obs31-windows-x64-setup.exe'
+        output = artifacts / 'InstantReplayXT-2.0.3-obs31-windows-x64-setup.exe'
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
     Path(str(output) + '.sha256').write_text(digest + '  ' + output.name + '\n')
     print('Installer:', output)
