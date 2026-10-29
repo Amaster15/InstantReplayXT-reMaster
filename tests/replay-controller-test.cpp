@@ -274,6 +274,20 @@ int main(int argc, char **argv) {
         c.setSpeed(50); assert(liveRate == 50 && liveUpdates == before && mediaPosition == 2345 && !c.speedSource);
         c.setSpeed(1); assert(liveRate == 1 && liveUpdates == before && mediaPosition == 2345 && !c.speedSource);
         c.setSpeed(175); assert(liveRate == 175 && liveUpdates == before && mediaPosition == 2345);
+        mediaState = OBS_MEDIA_STATE_PLAYING;
+        c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PAUSED && c.playbackState() == 2);
+        QMetaObject::invokeMethod(&c.playbackPoll, "timeout", Qt::DirectConnection);
+        assert(c.phase == ReplayController::Playing && mediaPosition == 2345);
+        c.setSpeed(1); assert(c.playbackState() == 2);
+        c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PLAYING && mediaPosition == 2345);
+        // Freeze must also suspend timed replay's automatic scene return.
+        c.setSpeed(100); c.libraryPlayback = false; c.timer.start(5000);
+        c.togglePause(); assert(!c.timer.isActive() && c.frozenRemaining > 4900);
+        c.setSpeed(50); assert(c.frozenRemaining > 9800 && !c.timer.isActive());
+        c.togglePause(); assert(c.timer.isActive() && c.frozenRemaining == -1);
+        c.phase = ReplayController::Saving;
+        assert(c.playbackState() == 0); c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PLAYING);
+
         c.reset(false);
     }
     obs_source_release(vlcSource);

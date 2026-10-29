@@ -12,7 +12,7 @@ ARTIFACTS = ROOT / 'artifacts'
 
 
 def check_linux():
-    installer = ARTIFACTS / 'InstantReplayXT-2.0.12-obs31-linux-x64-install.run'
+    installer = ARTIFACTS / 'InstantReplayXT-2.0.13-obs31-linux-x64-install.run'
     with tempfile.TemporaryDirectory(prefix='irxt-install-test-') as temp:
         config = Path(temp) / 'config with spaces'
         env = dict(os.environ, XDG_CONFIG_HOME=str(config))
@@ -74,14 +74,14 @@ def check_windows():
     # This writes ProgramData only on the disposable GitHub Actions test runner.
     if os.environ.get('GITHUB_ACTIONS') != 'true':
         raise RuntimeError('Windows installation smoke test is restricted to a disposable CI runner')
-    setup = ARTIFACTS / 'InstantReplayXT-2.0.12-obs31-windows-x64-setup.exe'
+    setup = ARTIFACTS / 'InstantReplayXT-2.0.13-obs31-windows-x64-setup.exe'
     target = Path(os.environ['ProgramData']) / 'obs-studio/plugins/InstantReplay'
     if target.exists():
         raise RuntimeError('Test destination already exists; refusing to overwrite it')
     quiet = ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART']
     subprocess.run([str(setup), *quiet], check=True)
     dll = target / 'bin/64bit/InstantReplay.dll'
-    with zipfile.ZipFile(ARTIFACTS / 'InstantReplayXT-2.0.12-obs31-windows-x64.zip') as z:
+    with zipfile.ZipFile(ARTIFACTS / 'InstantReplayXT-2.0.13-obs31-windows-x64.zip') as z:
         assert dll.read_bytes() == z.read('InstantReplay/bin/64bit/InstantReplay.dll')
     assert (target / 'data/locale/en-US.ini').is_file()
     assert (target / 'data/updater/install-after-obs.ps1').is_file()

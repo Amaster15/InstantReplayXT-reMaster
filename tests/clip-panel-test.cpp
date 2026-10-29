@@ -12,6 +12,14 @@ int main(int argc, char **argv) {
     const auto junk = dir.filePath("match one/readme.txt");
     for (const auto &path : {one, two, junk}) { QFile f(path); assert(f.open(QIODevice::WriteOnly)); f.write("clip"); }
     ClipPanel panel;
+    assert(!panel.pauseButton->isEnabled());
+    int playback = 1, toggles = 0;
+    panel.playbackState = [&] { return playback; };
+    panel.togglePause = [&] { playback = playback == 1 ? 2 : 1; ++toggles; };
+    panel.refreshPause(); assert(panel.pauseButton->isEnabled());
+    panel.pauseButton->click(); assert(playback == 2 && panel.pauseButton->text() == "Resume");
+    panel.pauseButton->click(); assert(playback == 1 && toggles == 2 && panel.pauseButton->text() == "Pause");
+    playback = 0; panel.refreshPause(); assert(!panel.pauseButton->isEnabled());
     assert(panel.speed->minimum() == 1 && panel.speed->maximum() == 200);
     for (int percent : {1, 25, 50, 75, 100}) {
         bool found = false;
