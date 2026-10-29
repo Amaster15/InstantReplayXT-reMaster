@@ -37,6 +37,7 @@ def main():
     cmake = shutil.which(args.cmake)
     if not cmake:
         parser.error("Install CMake 3.28 or newer, or pass --cmake PATH")
+    run(sys.executable, ROOT / "tests" / "test_update_helper.py")
     slug = system.lower() + "-x64"
     deps = ROOT / ".deps" / slug
     source = deps / "obs-studio-31.0.0"
@@ -78,7 +79,6 @@ def main():
         for directory in sorted(dll_dirs):
             verify_args.extend(["--dll-directory", str(directory)])
     run(sys.executable, ROOT / "scripts" / "verify_module.py", module, *verify_args)
-    run(sys.executable, ROOT / "tests" / "test_update_helper.py")
     if args.test:
         ctest = Path(cmake).with_name("ctest.exe" if system == "Windows" else "ctest")
         run(ctest, "--test-dir", build, "--output-on-failure")
