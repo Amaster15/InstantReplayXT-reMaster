@@ -5,6 +5,8 @@
 #include <fstream>
 static obs_source_t *currentScene;
 static int saveRequests;
+static int64_t mediaPosition = 0;
+static obs_media_state mediaState = OBS_MEDIA_STATE_STOPPED;
 static bool enabled = true, active = true, validScene = true, autoSwitch = true;
 bool get_auto_switch() { return autoSwitch; }
 static std::string status;
@@ -25,6 +27,9 @@ bool get_A_mute() { return true; }
 bool get_backup_enabled() { return !backupDir.empty(); }
 std::string get_backup_path() { return backupDir; }
 extern "C" {
+// No video thread in this test frontend: observe media commands at the public API.
+void obs_source_media_set_time(obs_source_t *, int64_t value) { mediaPosition = value; }
+void obs_source_media_play_pause(obs_source_t *, bool pause) { mediaState = pause ? OBS_MEDIA_STATE_PAUSED : OBS_MEDIA_STATE_PLAYING; }
 bool obs_frontend_replay_buffer_active() { return active; }
 void obs_frontend_replay_buffer_save() { ++saveRequests; }
 obs_source_t *obs_frontend_get_current_scene() { return obs_source_get_ref(currentScene); }
@@ -48,11 +53,16 @@ int main(int argc, char **argv) {
     obs_source_info sourceInfo = {};
     sourceInfo.id = "ffmpeg_source";
     sourceInfo.type = OBS_SOURCE_TYPE_INPUT;
-    sourceInfo.output_flags = OBS_SOURCE_AUDIO;
+    sourceInfo.output_flags = OBS_SOURCE_AUDIO | OBS_SOURCE_CONTROLLABLE_MEDIA;
     sourceInfo.get_name = [](void *) { return "Test Media"; };
     sourceInfo.create = [](obs_data_t *, obs_source_t *) -> void * { return new int(0); };
     sourceInfo.update = [](void *, obs_data_t *) {};
     sourceInfo.destroy = [](void *p) { delete static_cast<int *>(p); };
+    sourceInfo.media_get_time = [](void *) -> int64_t { return mediaPosition; };
+    sourceInfo.media_set_time = [](void *, int64_t value) { mediaPosition = value; };
+    sourceInfo.media_get_duration = [](void *) -> int64_t { return 20000; };
+    sourceInfo.media_get_state = [](void *) { return mediaState; };
+    sourceInfo.media_play_pause = [](void *, bool pause) { mediaState = pause ? OBS_MEDIA_STATE_PAUSED : OBS_MEDIA_STATE_PLAYING; };
     obs_register_source(&sourceInfo);
     auto *live = obs_scene_create("Live");
     auto *replayScene = obs_scene_create("Replay");
@@ -151,6 +161,43 @@ int main(int argc, char **argv) {
         assert(c.phase == ReplayController::Idle);
         controller = nullptr;
         active = true;
+        // Library selection can arm a clip without changing scenes or muting live audio.
+        auto chosen = (backupPath / "InstantReplay_2.mkv").u8string();
+        currentScene = obs_scene_get_source(live);
+        c.playLatest(true, chosen, true);
+        assert(c.phase == ReplayController::Idle && c.selectedReplay == chosen);
+        assert(currentScene == obs_scene_get_source(live) && !obs_source_muted(audio));
+        currentScene = obs_scene_get_source(replayScene);
+        c.sceneChanged();
+        assert(c.libraryPlayback && !c.original);
+        c.advance(); assert(c.playbackPoll.isActive() && !c.timer.isActive());
+        c.reset(false);
+        currentScene = obs_scene_get_source(live);
+        c.playLatest(false, chosen, true);
+        assert(currentScene == obs_scene_get_source(replayScene));
+        c.advance();
+        mediaState = OBS_MEDIA_STATE_PLAYING; mediaPosition = 7500;
+        c.setSpeed(50); assert(c.speedSource);
+        QCoreApplication::processEvents();
+        assert(c.speedUpdated);
+        mediaPosition = 0; // The native source reloads on a speed change.
+        QMetaObject::invokeMethod(&c.speedWait, "timeout", Qt::DirectConnection);
+        assert(!c.speedSource && mediaPosition == 7500);
+        auto *speedSettings = obs_source_get_settings(mediaSource);
+        assert(obs_data_get_int(speedSettings, "speed_percent") == 50);
+        obs_data_release(speedSettings);
+        mediaState = OBS_MEDIA_STATE_PAUSED; mediaPosition = 9000;
+        c.setSpeed(75); QCoreApplication::processEvents();
+        mediaState = OBS_MEDIA_STATE_PLAYING; mediaPosition = 0;
+        QMetaObject::invokeMethod(&c.speedWait, "timeout", Qt::DirectConnection);
+        assert(mediaPosition == 9000 && mediaState == OBS_MEDIA_STATE_PAUSED);
+        mediaState = OBS_MEDIA_STATE_ENDED;
+        QMetaObject::invokeMethod(&c.playbackPoll, "timeout", Qt::DirectConnection);
+        assert(currentScene == obs_scene_get_source(live) && c.phase == ReplayController::TransitionOut);
+        c.advance(); assert(!obs_source_muted(audio));
+        c.setSpeed(100);
+        c.playLatest(false, (testDir / "missing.mkv").u8string(), true);
+        assert(c.phase == ReplayController::Idle && currentScene == obs_scene_get_source(live));
         // Never replace a file until the Media Source acknowledges closing it.
         currentScene = obs_scene_get_source(live);
         c.start();
