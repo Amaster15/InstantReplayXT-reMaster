@@ -60,7 +60,7 @@ bool get_backup_enabled()
 
 std::string get_backup_path()
 {
-	return co->ui->filePathBackupEdit->text().toStdString();
+	return co->ui->matches->enabled->isChecked() ? co->ui->matches->activePath().toStdString() : co->ui->filePathBackupEdit->text().trimmed().toStdString();
 }
 
 std::string get_replay_source_name()
@@ -74,6 +74,8 @@ std::string get_replay_path()
     return co->ui->replayFolderEdit->text().trimmed().toStdString();
 }
 
+void replay_backup_saved() { if (co) co->ui->matches->backupSaved(); }
+
 void replay_status(const std::string &message)
 {
     blog(LOG_INFO, "[InstantReplayXT] %s", message.c_str());
@@ -86,6 +88,7 @@ replayCallout::replayCallout(QWidget *parent)
 	ui(new Ui_replayCallout)
 {
 	ui->setupUi(this);
+    ui->matches->legacyFolder = [this] { return ui->filePathBackupEdit->text(); };
 
 	QObject::connect(ui->closeButton->button(QDialogButtonBox::Close),
 		SIGNAL(clicked()), this, SLOT(close()));
@@ -122,6 +125,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 	if(saving)
 	{
 		obs_data_t *obj = obs_data_create();
+        co->ui->matches->save(obj);
 		QString qstr;
 		std::string str;
 
@@ -162,7 +166,8 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		{
 			obj = obs_data_create();
 		}
-		obs_data_set_default_int(obj, "wait", 10);
+		co->ui->matches->load(obj);
+        obs_data_set_default_int(obj, "wait", 10);
         obs_data_set_default_string(obj, "scene", "Replay Scene");
         obs_data_set_default_string(obj, "sourceName", "Instant Replay Media Source");
         co->ui->replayFolderEdit->setText(QString::fromUtf8(obs_data_get_string(obj, "replayFolder")));

@@ -41,14 +41,13 @@ inline fs::path nextBackup(const fs::path &directory, const fs::path &extension)
         throw std::runtime_error("Backup numbers exhausted");
     return directory / fs::u8path(prefix + std::to_string(highest + 1) + extension.u8string());
 }
-struct Result { std::string path; std::string warning; };
+struct Result { std::string path; std::string warning; std::string backupFile; std::string error; };
 inline Result publish(const std::string &saved, const std::string &folder, const std::string &backup)
 {
     auto source = fs::absolute(fs::u8path(saved));
     auto directory = folder.empty() ? source.parent_path() : fs::absolute(fs::u8path(folder));
-    fs::create_directories(directory);
     auto destination = directory / fs::u8path("InstantReplay" + source.extension().u8string());
-    Result result{destination.u8string(), ""};
+    Result result{destination.u8string(), "", "", ""};
     if (!backup.empty()) {
         try {
             auto backupDirectory = fs::u8path(backup);
@@ -56,8 +55,11 @@ inline Result publish(const std::string &saved, const std::string &folder, const
             // Never overwrite an existing numbered backup, even if another process creates it.
             auto target = nextBackup(backupDirectory, source.extension());
             fs::copy_file(source, target, fs::copy_options::none);
+            result.backupFile = target.u8string();
         } catch (const std::exception &e) { result.warning = std::string("Backup failed: ") + e.what(); }
     }
+    try {
+        fs::create_directories(directory);
     bool same = fs::exists(destination) && fs::equivalent(source, destination);
     if (!same) {
         copyAtomic(source, destination);
@@ -68,6 +70,7 @@ inline Result publish(const std::string &saved, const std::string &folder, const
             if (error) result.warning = "Saved fixed replay, but could not remove OBS's timestamped original.";
         }
     }
+    } catch (const std::exception &e) { result.error = e.what(); }
     return result;
 }
 }

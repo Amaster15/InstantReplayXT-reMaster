@@ -27,6 +27,7 @@ bool get_A_mute();
 bool get_backup_enabled();
 std::string get_backup_path();
 std::string get_replay_path();
+void replay_backup_saved();
 void replay_status(const std::string &message);
 std::string get_replay_source_name();
 

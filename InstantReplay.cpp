@@ -17,14 +17,15 @@ class ReplayController : public QObject {
 public:
     QTimer timer;
     QThreadPool backups;
-    enum Phase { Idle, Saving, Processing, TransitionIn, Playing, TransitionOut } phase = Idle;
+    enum Phase { Idle, Saving, ReleasingMedia, Processing, TransitionIn, Playing, TransitionOut } phase = Idle;
     obs_source_t *original = nullptr;
     obs_source_t *scene = nullptr;
     obs_source_t *media = nullptr;
     std::vector<MutedSource> muted;
     int pause = 0, length = 0;
     bool desktop = false, aux = false;
-    std::string backup, replayFolder, lastReplay;
+    std::string backup, replayFolder, lastReplay, pendingReplay, heldMediaFile;
+    bool waitingForMedia = false;
     unsigned generation = 0;
     bool canPlay = false, backupRequested = false, autoSwitch = false;
 
@@ -42,6 +43,9 @@ public:
     }
     void reset(bool returnToScene) {
         timer.stop();
+        disconnectMediaUpdate();
+        if (!heldMediaFile.empty() && media) configureMedia(heldMediaFile);
+        heldMediaFile.clear();
         ++generation;
         if (returnToScene && original && phase != Saving && phase != Idle)
             obs_frontend_set_current_scene(original);
@@ -82,6 +86,39 @@ public:
         bfree(path);
         if (replay.empty()) return;
         timer.stop();
+        pendingReplay = replay;
+        if (media && std::string(obs_source_get_unversioned_id(media)) == "ffmpeg_source") {
+            auto *settings = obs_source_get_settings(media);
+            heldMediaFile = obs_data_get_string(settings, "local_file");
+            obs_data_release(settings);
+            if (!heldMediaFile.empty()) {
+                phase = ReleasingMedia;
+                waitingForMedia = true;
+                signal_handler_connect(obs_source_get_signal_handler(media), "update", mediaUpdated, this);
+                replay_status("Releasing replay Media Source before replacing the fixed file…");
+                timer.start(5000);
+                configureMedia("");
+                return;
+            }
+        }
+        processSaved();
+    }
+    static void mediaUpdated(void *data, calldata_t *) {
+        auto *self = static_cast<ReplayController *>(data);
+        QMetaObject::invokeMethod(self, [self] {
+            if (self->phase != ReleasingMedia) return;
+            self->disconnectMediaUpdate();
+            self->timer.stop();
+            self->processSaved();
+        }, Qt::QueuedConnection);
+    }
+    void disconnectMediaUpdate() {
+        if (waitingForMedia && media)
+            signal_handler_disconnect(obs_source_get_signal_handler(media), "update", mediaUpdated, this);
+        waitingForMedia = false;
+    }
+    void processSaved() {
+        const auto replay = pendingReplay;
         phase = Processing;
         const auto request = generation;
         replay_status("Writing InstantReplay and numbered backup…");
@@ -91,16 +128,19 @@ public:
             std::string error;
             try {
                 result = replay_files::publish(replay, folder, backupPath);
-                if (backupEnabled && backupPath.empty()) result.warning = "Backup enabled but no backup folder selected.";
+                if (backupEnabled && backupPath.empty()) result.warning = "Backup enabled but no active match / backup folder selected; no backup written.";
             }
             catch (const std::exception &e) { error = e.what(); }
-            QMetaObject::invokeMethod(this, [this, result, error, request, replay] {
+            QMetaObject::invokeMethod(this, [this, result, error, request, replay]() mutable {
                 if (request != generation || phase != Processing) return;
-                if (!error.empty()) {
-                    replay_status("Cannot write fixed replay: " + error + ". OBS original retained at " + replay);
+                if (!result.backupFile.empty()) replay_backup_saved();
+                if (!error.empty() || !result.error.empty()) {
+                    if (error.empty()) error = result.error;
+                    replay_status("Cannot write fixed replay: " + error + ". OBS original retained at " + replay + (result.backupFile.empty() ? "" : ". Backup saved at " + result.backupFile));
                     reset(false); return;
                 }
-                replay_status("Saved " + result.path + (result.warning.empty() ? "" : ". " + result.warning));
+                replay_status("Main replay saved at " + result.path + (result.backupFile.empty() ? "" : ". Backup saved at " + result.backupFile) + (result.warning.empty() ? "" : ". " + result.warning));
+                heldMediaFile.clear();
                 lastReplay = result.path;
                 // Arm the Media Source for normal scene activation, without changing scenes.
                 if (media && std::string(obs_source_get_unversioned_id(media)) == "ffmpeg_source")
@@ -162,7 +202,7 @@ public:
         play(replay, manual);
     }
     void sceneChanged() {
-        if (phase == Saving || phase == Processing) { canPlay = false; return; }
+        if (phase == Saving || phase == ReleasingMedia || phase == Processing) { canPlay = false; return; }
         auto *current = obs_frontend_get_current_scene();
         if (phase == TransitionIn || phase == Playing) {
             const bool left = current != scene;
@@ -176,6 +216,9 @@ public:
     }
     void advance() {
         switch (phase) {
+        case ReleasingMedia:
+            replay_status("Could not release replay source in time. OBS original retained at " + pendingReplay);
+            reset(false); break;
         case Saving:
             replay_status("OBS did not report a saved replay before the timeout. Check the OBS log, recording folder permissions, and Replay Buffer settings.");
             reset(false); break;

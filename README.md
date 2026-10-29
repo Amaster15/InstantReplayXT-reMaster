@@ -41,6 +41,28 @@ dependencies, or Ubuntu 24.04's Qt 6.4 on Linux. The source builds with newer Qt
 - Clean up timers, callbacks, hotkeys and the settings dialog on unload.
 - Keep the original `InstantReplay` and `replayCallout_data` scene collection settings keys.
 
+## Match folders and BRB VLC playlists (2.0.3)
+
+Open **Tools > Instant Replay XT Settings > Matches / BRB playlist**:
+
+1. Click **Add folder…** for each match. Create/select a folder, then edit the match/team name in the table.
+2. Enable **Use match folders instead of the single backup folder**, and enable **Backup Replay File** on the Replay settings tab.
+3. Select the first match and click **Use selected match**. Each save goes to that folder until you click **Next match**.
+4. Disable unused rows with their checkbox; use Up/Down to order matches. Disabled rows are skipped. At the end, there is no active match and backups pause until you explicitly choose/add another. The main replay still saves. Removing rows never deletes files.
+5. Enter the exact name of an existing OBS **VLC Video Source** used on the BRB scene. **Refresh VLC now** replaces its playlist with the active match's folder and restarts playback. It preserves loop/shuffle and other VLC options. Use a dedicated source for this managed playlist.
+6. Optionally enable automatic refresh. Successful backups and match changes refresh the playlist while the source is off-screen; if visible (including preview), refresh waits until it is hidden. Manual refresh works immediately and can interrupt playback. When match mode is off, VLC uses the single backup folder.
+
+Each match folder continues its own `InstantReplay_1`, `_2`, etc. numbering. Settings,
+folder order, enabled flags, active match and VLC selection are saved per scene collection.
+The VLC Video Source must already be available in OBS; this plugin does not install VLC.
+
+For the main filename, 2.0.3 releases the configured replay Media Source and waits for OBS
+to acknowledge its update before replacing `InstantReplay` plus the recording extension.
+This addresses the source holding the file open on Windows. Saving while that source is
+visible may briefly clear its picture. If another application still locks the file or writing
+fails, the timestamped OBS original is retained. Status now reports the exact main and backup
+paths separately. A successful backup can refresh VLC even if main-file replacement fails.
+
 ## Saving and playing independently (2.0.2)
 
 Saving stays on your current scene by default. The existing save hotkey binding is retained,
@@ -85,8 +107,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.2-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.2-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.3-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.3-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -130,7 +152,7 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.2-obs31-windows-x64-setup.exe`.
+Close OBS, then run `InstantReplayXT-2.0.3-obs31-windows-x64-setup.exe`.
 Accept the Windows administrator prompt. The installer chooses the standard location:
 
 ```text
@@ -156,7 +178,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.2-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.3-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -168,8 +190,8 @@ directory, outside the plugin search path. Restart OBS after installation.
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.2-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.2-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.3-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.3-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,

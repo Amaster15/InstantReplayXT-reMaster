@@ -1,4 +1,7 @@
 #pragma once
+#include "MatchPanel.h"
+#include <QTabWidget>
+#include <QScrollArea>
 #include <QtCore/QVariant>
 #include <QtGui/QAction>
 #include <QtWidgets/QApplication>
@@ -19,6 +22,7 @@ class Ui_replayCallout
 {
 public:
 	QGridLayout *replayLayout;
+    MatchPanel *matches;
 
 	QLabel *enableLabel;
 	QCheckBox *enableCheck;
@@ -60,7 +64,15 @@ public:
 		if(replayCallout->objectName().isEmpty())
 			replayCallout->setObjectName(QStringLiteral("InstantReplay"));
 		replayCallout->resize(300, 300);
-		replayLayout = new QGridLayout(replayCallout);
+		auto *outer = new QVBoxLayout(replayCallout);
+        auto *tabs = new QTabWidget(replayCallout); outer->addWidget(tabs);
+        auto *general = new QWidget;
+        auto *scroll = new QScrollArea; scroll->setWidgetResizable(true); scroll->setWidget(general);
+        tabs->addTab(scroll, "Replay settings");
+        matches = new MatchPanel;
+        tabs->addTab(matches, "Matches / BRB playlist");
+        replayCallout->resize(800, 720);
+        replayLayout = new QGridLayout(general);
 		replayLayout->setObjectName(QStringLiteral("replayLayout"));
 
 		enableLabel = new QLabel(replayCallout);
@@ -195,7 +207,7 @@ public:
 
 	void retranslateUi(QDialog *replayCallout)
 	{
-		replayCallout->setWindowTitle(QApplication::translate("replayCallout", "InstantReplay", Q_NULLPTR));
+		replayCallout->setWindowTitle("Instant Replay XT 2.0.3");
 		enableLabel->setText(QApplication::translate("replayCallout", "Enable", Q_NULLPTR));
 		waitLabel->setText(QApplication::translate("replayCallout", "WritePause", Q_NULLPTR));
 		pauseLabel->setText(QApplication::translate("replayCallout", "TransitionPause", Q_NULLPTR));
