@@ -27,7 +27,8 @@ with tempfile.TemporaryDirectory(prefix='irxt update ') as temp:
     # Reject changed bytes, even after the download was initially verified.
     marker.touch()
     subprocess.run(command + args('0' * 64, 2147483647), check=True, timeout=15)
-    assert 'checksum' in status.read_text(encoding='utf-8-sig').lower()
+    message = status.read_text(encoding='utf-8-sig')
+    assert 'checksum' in message.lower(), message
     assert not marker.exists() and not (root / 'result').exists()
     # Wait for an actual process, then cancel without running the installer.
     marker.touch()
