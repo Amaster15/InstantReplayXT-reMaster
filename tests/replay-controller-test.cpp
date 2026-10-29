@@ -10,6 +10,7 @@ bool get_auto_switch() { return autoSwitch; }
 static std::string status;
 static std::string outputDir;
 std::string get_replay_path() { return outputDir; }
+void replay_backup_saved() {}
 void replay_status(const std::string &message) { status = message; }
 static std::string backupDir;
 static std::string replayPath;
@@ -33,6 +34,7 @@ char *obs_frontend_get_last_replay() { return bstrdup(replayPath.c_str()); }
 static void finishSave(ReplayController &c) {
     std::ofstream(fs::u8path(replayPath)) << "test replay";
     c.saved();
+    QCoreApplication::processEvents(); // Acknowledge asynchronous Media Source release.
     c.backups.waitForDone();
     QCoreApplication::processEvents();
 }
@@ -49,6 +51,7 @@ int main(int argc, char **argv) {
     sourceInfo.output_flags = OBS_SOURCE_AUDIO;
     sourceInfo.get_name = [](void *) { return "Test Media"; };
     sourceInfo.create = [](obs_data_t *, obs_source_t *) -> void * { return new int(0); };
+    sourceInfo.update = [](void *, obs_data_t *) {};
     sourceInfo.destroy = [](void *p) { delete static_cast<int *>(p); };
     obs_register_source(&sourceInfo);
     auto *live = obs_scene_create("Live");
@@ -105,7 +108,7 @@ int main(int argc, char **argv) {
         const int before = saveRequests;
         c.start(); assert(saveRequests == before + 1); finishSave(c);
         assert(c.phase == ReplayController::Idle);
-        assert(status.find("Saved") != std::string::npos);
+        assert(status.find("Main replay saved") != std::string::npos);
         assert(fs::exists(backupPath / "InstantReplay_2.mkv"));
         validScene = true;
         active = false; c.start(); assert(saveRequests == before + 1);
@@ -148,6 +151,15 @@ int main(int argc, char **argv) {
         assert(c.phase == ReplayController::Idle);
         controller = nullptr;
         active = true;
+        // Never replace a file until the Media Source acknowledges closing it.
+        currentScene = obs_scene_get_source(live);
+        c.start();
+        std::ofstream(fs::u8path(replayPath)) << "release timeout retained";
+        c.saved(); assert(c.phase == ReplayController::ReleasingMedia);
+        c.advance(); // Simulate an unresponsive video update: retain the original and restore source.
+        assert(c.phase == ReplayController::Idle && fs::exists(fs::u8path(replayPath)));
+        QCoreApplication::processEvents();
+        assert(c.phase == ReplayController::Idle);
         // Continue after the highest existing number, even with gaps.
         std::ofstream(backupPath / "InstantReplay_9.mkv") << "older backup";
         std::ofstream(fs::u8path(replayPath)) << "new replay";
@@ -161,9 +173,12 @@ int main(int argc, char **argv) {
         auto blocked = testDir / "not-a-directory";
         std::ofstream(blocked) << "occupied";
         bool failed = false;
-        try { replay_files::publish(replayPath, blocked.u8string(), ""); }
+        try { failed = !replay_files::publish(replayPath, blocked.u8string(), "").error.empty(); }
         catch (const std::exception &) { failed = true; }
         assert(failed && fs::exists(fs::u8path(replayPath)));
+        auto partial = replay_files::publish(replayPath, blocked.u8string(), backupDir);
+        assert(!partial.error.empty() && !partial.backupFile.empty());
+        assert(fs::exists(fs::u8path(partial.backupFile)) && fs::exists(fs::u8path(replayPath)));
         // A backup failure is visible but does not prevent the main save.
         result = replay_files::publish(replayPath, (testDir / "custom folder").u8string(), blocked.u8string());
         assert(!result.warning.empty() && fs::exists(fs::u8path(result.path)));
