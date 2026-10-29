@@ -97,43 +97,63 @@ cmake --install build-local --prefix "$PWD/dist"
 coverage; `make test` runs the controller test only. All integration tests currently run
 on Linux because the fake frontend relies on ELF symbol interposition.
 
-## Install on Windows 10 with OBS 32
+## Install on Windows 10/11
 
-Close OBS first. Remove the old InstantReplay plugin binary from its old installation
-location so OBS cannot load two copies. Extract the **Windows** archive and copy its
-`InstantReplay` folder to:
+Close OBS, then run `InstantReplayXT-2.0.0-obs31-windows-x64-setup.exe`.
+Accept the Windows administrator prompt. The installer chooses the standard location:
 
 ```text
-C:\ProgramData\obs-studio\plugins\InstantReplay\bin\64bit\InstantReplay.dll
-C:\ProgramData\obs-studio\plugins\InstantReplay\data\locale\en-US.ini
+C:\ProgramData\obs-studio\plugins\InstantReplay
 ```
 
-`ProgramData` is a hidden folder; paste `%ProgramData%\obs-studio\plugins` into Explorer.
-The archive's top-level README, LICENSE and build-info.json are reference files.
-Restart OBS and look for **Tools → Instant Replay XT Settings**.
-Do not copy the Linux `.so` onto Windows.
+Restart OBS and open **Tools → Instant Replay XT Settings**. Uninstall through Windows
+**Settings → Apps → Instant Replay XT for OBS**. OBS scenes, profiles and recordings
+are preserved. Upgrades back up the previous DLL under
+`%ProgramData%\obs-studio\plugin-backups`.
 
-For portable OBS, the ProgramData path is not searched by OBS 31. Instead place the DLL
-in `<portable OBS>/obs-plugins/64bit/` and the locale in
+If an older DLL exists inside `C:\Program Files\obs-studio\obs-plugins\64bit`, setup
+asks you to move it out first to prevent duplicate plugin loading. For a custom OBS
+installation path, also check that installation's old plugin folder yourself.
+The installer is unsigned, so Windows may show an unknown-publisher warning.
+
+Portable OBS uses a different search path. Use the ZIP package instead, placing its
+DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 `<portable OBS>/data/obs-plugins/InstantReplay/locale/`.
-CMake's `-DIRXT_PLUGIN_LAYOUT=OFF` stages that application-folder layout.
 
 ## Install on Linux
 
-Close OBS, remove the old plugin binary, and copy the archive's `InstantReplay` folder to
-`${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/`, giving:
+Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
-```text
-~/.config/obs-studio/plugins/InstantReplay/bin/64bit/InstantReplay.so
-~/.config/obs-studio/plugins/InstantReplay/data/locale/en-US.ini
+```sh
+sh InstantReplayXT-2.0.0-obs31-linux-x64-install.run
 ```
 
-CMake's `-DIRXT_PLUGIN_LAYOUT=OFF` stages conventional system `lib/obs-plugins` and
-`share/obs/obs-plugins` paths instead. No installation into your live OBS configuration
-has been performed automatically.
+It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
+Python 3 and `pgrep` (the `procps` package on Ubuntu) are required. Paths containing
+spaces are supported. The installer verifies its payload checksum before modifying files.
+Existing installations are backed up under the OBS configuration's `plugin-backups`
+directory, outside the plugin search path. Restart OBS after installation.
 
-The per-plugin layout above works with OBS 31/32 and the legacy loader in OBS 33.
-OBS 34's packaging requirements must be addressed before claiming OBS 34 support.
+Preview the destination, or uninstall later using the same downloaded file:
+
+```sh
+sh InstantReplayXT-2.0.0-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.0-obs31-linux-x64-install.run --uninstall
+```
+
+Uninstall removes only files shipped by the installer; OBS settings, recordings,
+backups and unrecognized files are preserved. This Ubuntu 24.04 / Qt 6.4 package targets
+native Linux x86_64 OBS with compatible system libraries. It is **not a Flatpak runtime
+build**. Portable OBS and sandboxed distributions should use a package built for their
+runtime rather than this installer.
+
+The manual `.zip` and `.tar.gz` packages remain available. Installer generation uses
+`scripts/package_installers.py --platform windows` (requires Inno Setup 6) or
+`--platform linux`. The workflow tests install, upgrade backup and uninstall on a
+Windows runner and in a temporary Linux configuration directory.
+
+Both standard install layouts work with OBS 31/32 and the legacy loader in OBS 33.
+OBS 34 packaging must be revalidated before claiming support.
 
 ## Configure and use
 
