@@ -148,8 +148,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.11-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.11-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.12-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.12-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -193,7 +193,7 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.11-obs31-windows-x64-setup.exe`.
+Close OBS, then run `InstantReplayXT-2.0.12-obs31-windows-x64-setup.exe`.
 Accept the Windows administrator prompt. Setup includes a destination folder selector and remembers the previous install location for upgrades. The recommended default is:
 
 ```text
@@ -221,7 +221,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.11-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.12-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -235,8 +235,8 @@ To use a custom plugin folder, pass `--install-dir "/absolute/OBS-plugin-search-
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.11-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.11-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.12-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.12-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,
@@ -299,3 +299,7 @@ VLC live slow motion is first in the player list and is selected on first use or
 Play and Play + switch now stop the current replay and restart the chosen clip immediately, including clicking the same clip again. Old playback timers and pending speed seeks are cancelled. Play + switch preserves the original return scene across replacement clips; Play stays on the current scene or arms the selected replay if its scene is hidden. A missing clip does not interrupt current playback. Player-mode changes also stop an active replay rather than rejecting the switch. Save/file-replacement operations remain protected until they finish.
 
 Each Play action checks the selected player and scene setup, creating the VLC player when needed without requiring an OBS restart. Config-file recovery, source dropdowns and installers from 2.0.10 remain included.
+
+## Speed presets and 1% slow motion (2.0.12)
+
+The speed slider and VLC source properties now support 1%–200%. Five quick buttons select 1%, 25%, 50%, 75%, or 100%; 100% restores normal speed. These use the same live VLC rate control as the slider and persist through the existing config system. At 1%, a 10-second clip takes about 16 minutes 40 seconds to play; this slows existing frames rather than generating intermediate frames.

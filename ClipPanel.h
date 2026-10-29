@@ -82,15 +82,21 @@ public:
         playbackMode->setAccessibleName("Replay player mode"); modeRow->addWidget(playbackMode, 1);
         auto *speedRow = new QHBoxLayout; layout->addLayout(speedRow);
         speedRow->addWidget(new QLabel("Playback speed", this));
-        speed = new QSlider(Qt::Horizontal, this); speed->setRange(25, 200); speed->setValue(100);
+        speed = new QSlider(Qt::Horizontal, this); speed->setRange(1, 200); speed->setValue(100);
         speed->setAccessibleName("Replay playback speed percent"); speedRow->addWidget(speed);
         auto *value = new QLabel("100%", this); value->setMinimumWidth(55); speedRow->addWidget(value);
-        auto *normal = new QPushButton("Normal speed", this); speedRow->addWidget(normal);
+        auto *presets = new QHBoxLayout; layout->addLayout(presets);
+        for (int percent : {1, 25, 50, 75, 100}) {
+            auto *button = new QPushButton(QString::number(percent) + "%", this);
+            button->setAccessibleName(QString("Set playback speed to %1 percent").arg(percent));
+            presets->addWidget(button);
+            connect(button, &QPushButton::clicked, this, [this, percent] { speed->setValue(percent); });
+        }
         modeHint = new QLabel(this); modeHint->setWordWrap(true); layout->addWidget(modeHint);
         auto updateHint = [this] {
             modeHint->setText(!usesVlc()
                 ? "Standard Media Source reloads the clip when speed changes. Try VLC live slow motion for speed changes without reloading."
-                : "VLC changes speed during playback without reloading the clip. Requires VLC 3.x (64-bit on Windows). 25% = quarter speed; 100% = normal; 200% = double speed.");
+                : "VLC changes speed during playback without reloading the clip. Requires VLC 3.x (64-bit on Windows). 1% = one hundredth speed; 25% = quarter speed; 100% = normal; 200% = double speed.");
         };
         connect(playbackMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [updateHint](int) { updateHint(); }); updateHint();
         status = new QLabel(this); status->setWordWrap(true); status->setTextFormat(Qt::PlainText); layout->addWidget(status);
@@ -99,7 +105,6 @@ public:
             if (usesVlc()) { if (!debounce->isActive()) debounce->start(50); }
             else debounce->start(180); });
         connect(debounce, &QTimer::timeout, this, [this] { if (changeSpeed) changeSpeed(speed->value()); });
-        connect(normal, &QPushButton::clicked, this, [this] { speed->setValue(100); });
         connect(refresh, &QPushButton::clicked, this, [this] { refreshClips(); });
         connect(playButton, &QPushButton::clicked, this, [this] { playSelected(); });
         connect(clips, &QTableWidget::cellDoubleClicked, this, [this](int, int) { playSelected(); });

@@ -184,7 +184,7 @@ struct Player {
         obs_source_output_audio(s->source, &audio);
     }
     bool rate(int percent) {
-        const int next = std::clamp(percent, 25, 200);
+        const int next = std::clamp(percent, 1, 200);
         if (vlc.libvlc_media_player_set_rate(player, float(next) / 100.f) != 0) return false;
         speed = next; return true;
     }
@@ -276,7 +276,7 @@ void replay_player_register() {
     info.get_properties = [](void *) {
         auto *properties = obs_properties_create();
         obs_properties_add_path(properties, "local_file", "Clip", OBS_PATH_FILE, "Video (*.mkv *.mp4 *.mov *.flv *.ts *.webm);;All files (*.*)", nullptr);
-        obs_properties_add_int_slider(properties, "speed_percent", "Playback speed (%)", 25, 200, 1);
+        obs_properties_add_int_slider(properties, "speed_percent", "Playback speed (%)", 1, 200, 1);
         return properties;
     };
     info.activate = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); s->start(); };
