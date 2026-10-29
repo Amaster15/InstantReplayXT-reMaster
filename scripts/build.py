@@ -85,6 +85,8 @@ def main():
         test_env["PATH"] = os.pathsep.join(str(p) for p in sorted(dll_dirs)) + os.pathsep + test_env.get("PATH", "")
         subprocess.run([str(build / "Release" / "update-transport-test.exe"), "--live"],
                        check=True, env=test_env)
+        subprocess.run([str(build / "Release" / "replay-player-test.exe"),
+                        str(ROOT / "tests" / "fixtures" / "replay-test.mp4")], check=True, env=test_env)
     if args.test:
         ctest = Path(cmake).with_name("ctest.exe" if system == "Windows" else "ctest")
         run(ctest, "--test-dir", build, "--output-on-failure")
@@ -98,7 +100,7 @@ def main():
     (stage / "build-info.json").write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
     artifacts = ROOT / "artifacts"
     artifacts.mkdir(exist_ok=True)
-    name = "InstantReplayXT-2.0.8-obs31-" + slug
+    name = "InstantReplayXT-2.0.9-obs31-" + slug
     if system == "Windows":
         archive = artifacts / (name + ".zip")
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
