@@ -1,5 +1,6 @@
 #include "InstantReplay_callout.h"
 #include "InstantReplay.h"
+#include "ReplayMode.h"
 #include <obs-frontend-api.h>
 #include <obs-module.h>
 #include <QtWidgets/QMainWindow>
@@ -65,7 +66,7 @@ std::string get_backup_path()
 
 std::string get_replay_source_name()
 {
-	return co->ui->replaySourceNameEdit->text().toStdString();
+	return (co->ui->replaySourceNameEdit->text() + (co->ui->library->playbackMode->currentIndex() == 1 ? " (VLC live)" : "")).toStdString();
 }
 
 
@@ -116,6 +117,19 @@ replayCallout::replayCallout(QWidget *parent)
     };
     ui->library->play = [](const QString &path, bool switchScene) { replay_play_clip(path.toStdString(), switchScene); };
     ui->library->changeSpeed = [](int percent) { replay_set_speed(percent); };
+    connect(ui->library->playbackMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int mode) {
+        if (property("loadingReplaySettings").toBool()) return;
+        QString error;
+        if (replay_is_busy()) error = "Wait until the current replay or save finishes before changing player mode.";
+        else configureReplayMode(ui->sceneLineEdit->text(), ui->replaySourceNameEdit->text(), mode == 1, error);
+        if (!error.isEmpty()) {
+            setProperty("loadingReplaySettings", true); ui->library->playbackMode->setCurrentIndex(mode == 1 ? 0 : 1); setProperty("loadingReplaySettings", false);
+            replay_status(error.toStdString()); return;
+        }
+        replay_set_speed(ui->library->speed->value());
+        replay_status(mode == 1 ? "VLC live slow motion is ready. Speed changes keep the clip running." : "Standard Media Source selected. Speed changes reload the clip; choose VLC for live slow motion.");
+        obs_frontend_save();
+    });
     ui->matches->legacyFolder = [this] { return ui->filePathBackupEdit->text(); };
 
 	QObject::connect(ui->closeButton->button(QDialogButtonBox::Close),
@@ -154,6 +168,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 	{
 		obs_data_t *obj = obs_data_create();
         co->ui->matches->save(obj);
+        obs_data_set_bool(obj, "vlcReplayPlayer", co->ui->library->playbackMode->currentIndex() == 1);
         obs_data_set_bool(obj, "librarySwitchScene", co->ui->library->switchScene->isChecked());
 		QString qstr;
 		std::string str;
@@ -195,6 +210,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		{
 			obj = obs_data_create();
 		}
+        co->setProperty("loadingReplaySettings", true);
 		co->ui->matches->load(obj);
         co->ui->library->switchScene->setChecked(obs_data_get_bool(obj, "librarySwitchScene"));
         co->ui->library->speed->setValue(100);
@@ -221,6 +237,8 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		co->ui->filePathBackupEdit->setText(qstr);
 		qstr = QString::fromUtf8(obs_data_get_string(obj, "sourceName"));
 		co->ui->replaySourceNameEdit->setText(qstr);
+        co->ui->library->playbackMode->setCurrentIndex(obs_data_get_bool(obj, "vlcReplayPlayer") ? 1 : 0);
+        co->setProperty("loadingReplaySettings", false);
 		//---
 
 		obs_data_release(obj);

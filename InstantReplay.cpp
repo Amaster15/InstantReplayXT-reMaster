@@ -13,6 +13,11 @@
 
 namespace {
 namespace fs = std::filesystem;
+bool supportedReplaySource(obs_source_t *source) {
+    if (!source) return false;
+    const std::string id = obs_source_get_unversioned_id(source);
+    return id == "ffmpeg_source" || id == "irxt_vlc_player";
+}
 struct MutedSource { obs_source_t *source; bool muted; };
 class ReplayController : public QObject {
 public:
@@ -108,6 +113,20 @@ public:
         if (speedSource || phase == Saving || phase == ReleasingMedia || phase == Processing) return;
         auto *source = media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
         if (!source) return;
+        if (std::string(obs_source_get_unversioned_id(source)) == "irxt_vlc_player") {
+            calldata_t call; calldata_init(&call); calldata_set_int(&call, "percent", speedPercent);
+            const bool success = proc_handler_call(obs_source_get_proc_handler(source), "irxt_set_rate", &call) && calldata_bool(&call, "success");
+            calldata_free(&call);
+            if (success) {
+                if (!libraryPlayback && phase == Playing && timer.isActive())
+                    timer.start(std::max(1, timer.remainingTime() * appliedSpeed / speedPercent));
+                appliedSpeed = speedPercent;
+                // Persist the setting without triggering a source update/reopen.
+                auto *settings = obs_source_get_settings(source);
+                obs_data_set_int(settings, "speed_percent", speedPercent); obs_data_release(settings);
+            } else replay_status("VLC could not apply this playback speed.");
+            obs_source_release(source); return;
+        }
         if (std::string(obs_source_get_unversioned_id(source)) != "ffmpeg_source") { obs_source_release(source); return; }
         auto *settings = obs_source_get_settings(source);
         int oldSpeed = (int)obs_data_get_int(settings, "speed_percent");
@@ -144,7 +163,7 @@ public:
         media = obs_get_source_by_name(get_replay_source_name().c_str());
         original = obs_frontend_get_current_scene();
         canPlay = scene && obs_scene_from_source(scene) && media && original &&
-            std::string(obs_source_get_unversioned_id(media)) == "ffmpeg_source" && scene != original;
+            supportedReplaySource(media) && scene != original;
         pause = std::max(0, get_pause());
         length = std::max(1, get_replay());
         desktop = get_D_mute(); aux = get_A_mute();
@@ -165,7 +184,7 @@ public:
         if (replay.empty()) return;
         timer.stop();
         pendingReplay = replay;
-        if (media && std::string(obs_source_get_unversioned_id(media)) == "ffmpeg_source") {
+        if (media && supportedReplaySource(media)) {
             auto *settings = obs_source_get_settings(media);
             heldMediaFile = obs_data_get_string(settings, "local_file");
             obs_data_release(settings);
@@ -222,7 +241,7 @@ public:
                 lastReplay = result.path;
                 selectedReplay.clear();
                 // Arm the Media Source for normal scene activation, without changing scenes.
-                if (media && std::string(obs_source_get_unversioned_id(media)) == "ffmpeg_source")
+                if (media && supportedReplaySource(media))
                     configureMedia(result.path);
                 if (autoSwitch && canPlay) {
                     play(result.path);
@@ -243,6 +262,7 @@ public:
         obs_data_set_bool(settings, "restart_on_activate", true);
         obs_data_set_bool(settings, "looping", false);
         obs_source_update(media, settings);
+        appliedSpeed = speedPercent;
         obs_data_release(settings);
     }
     void play(const std::string &replay, bool manual = false) {
@@ -260,7 +280,7 @@ public:
         media = obs_get_source_by_name(get_replay_source_name().c_str());
         original = obs_frontend_get_current_scene();
         if (!scene || !obs_scene_from_source(scene) || !media || !original ||
-            std::string(obs_source_get_unversioned_id(media)) != "ffmpeg_source") {
+            !supportedReplaySource(media)) {
             replay_status("Cannot play: select a valid replay scene and Media Source.");
             reset(false); return;
         }
@@ -421,3 +441,5 @@ void replay_set_speed(int percent) {
     if (controller) controller->setSpeed(percent);
 }
 std::string replay_current_file() { return controller ? controller->lastReplay : ""; }
+
+bool replay_is_busy() { return controller && (controller->phase != ReplayController::Idle || controller->speedSource); }

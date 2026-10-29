@@ -41,6 +41,19 @@ dependencies, or Ubuntu 24.04's Qt 6.4 on Linux. The source builds with newer Qt
 - Clean up timers, callbacks, hotkeys and the settings dialog on unload.
 - Keep the original `InstantReplay` and `replayCallout_data` scene collection settings keys.
 
+## Replay player choice and icons (2.0.9)
+
+The Clip Library has a **Replay player** dropdown:
+
+- **Standard Media Source** keeps the existing OBS player. Changing speed reloads the clip and restores the position; the note under the slider explains this.
+- **VLC live slow motion** changes playback rate without stopping, reopening or seeking the clip. Install **64-bit VLC 3.x** on Windows, or VLC/libVLC 3.x with its codec plugins on Linux, then restart OBS. VLC 4 is not supported by this player yet. VLC is optional for standard playback and is not bundled in the installer.
+
+Configure the normal replay scene and Media Source first. With no replay/save in progress, selecting VLC creates an **Instant Replay VLC Player** named after that source with ` (VLC live)` appended. The standard source must be directly in the replay scene, outside groups. The new player copies the placement, crop, filters and audio routing at creation. The dropdown toggles which player is visible and remembers the choice per scene collection; the original source remains available. Select Standard to switch back. Only the selected player is used by replay hotkeys and the clip library; the BRB playlist is unchanged. This VLC player outputs stereo audio.
+
+Clip rows now use a **play triangle** for Play and a **screen with play triangle** for Play + switch scene. Hover for tooltips. Their behavior remains independent of the global scene-switch checkbox.
+
+Validation covers real VLC video/audio decoding, correct display dimensions, continuous position through rate changes, paused rate changes, fixed-file release, mode switching and controller rate calls without reloads. The synthetic test clip in `tests/fixtures` was generated with FFmpeg testsrc2 and sine filters.
+
 ## Windows updater HTTPS fix (2.0.8)
 
 Windows update checks and installer downloads now use the Windows system curl client with certificate verification, HTTPS-only redirects, time/size limits and the existing SHA256 verification. They no longer depend on OBS shipping Qt TLS plugins. This fixes “TLS initialization failed” on affected installations. Windows 10 version 1809 or newer includes this client.
@@ -135,8 +148,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.8-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.8-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.9-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.9-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -180,7 +193,7 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.8-obs31-windows-x64-setup.exe`.
+Close OBS, then run `InstantReplayXT-2.0.9-obs31-windows-x64-setup.exe`.
 Accept the Windows administrator prompt. Setup includes a destination folder selector and remembers the previous install location for upgrades. The recommended default is:
 
 ```text
@@ -208,7 +221,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.8-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.9-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -222,8 +235,8 @@ To use a custom plugin folder, pass `--install-dir "/absolute/OBS-plugin-search-
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.8-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.8-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.9-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.9-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,

@@ -8,7 +8,7 @@
 #include <QVariant>
 
 namespace updates {
-inline const QString currentVersion = "2.0.8";
+inline const QString currentVersion = "2.0.9";
 inline const QString repository = "https://github.com/Amaster15/InstantReplayXT-reMaster";
 struct Release { QString version, name, digest; QUrl url; qint64 size = 0; };
 inline bool newer(const QString &tag, const QString &current = currentVersion) {
