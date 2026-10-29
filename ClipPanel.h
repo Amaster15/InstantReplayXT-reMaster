@@ -9,6 +9,7 @@
 #include <QSlider>
 #include <QLabel>
 #include <QDir>
+#include <QDirIterator>
 #include <QDateTime>
 #include <QSet>
 #include <QTimer>
@@ -28,22 +29,24 @@ public:
     std::function<void(int)> changeSpeed;
     explicit ClipPanel(QWidget *parent = nullptr) : QWidget(parent) {
         auto *layout = new QVBoxLayout(this);
-        auto *note = new QLabel("Saved clips from all configured backup / match folders, plus the current replay file. Enable backups to keep older clips.");
+        auto *note = new QLabel("Saved clips from all configured backup / match folders (including subfolders), plus the current replay file. Enable backups to keep older clips.");
         note->setWordWrap(true); layout->addWidget(note);
-        clips = new QTableWidget(0, 3, this);
-        clips->setHorizontalHeaderLabels({"Clip", "Match / folder", "Saved"});
+        clips = new QTableWidget(0, 5, this);
+        clips->setHorizontalHeaderLabels({"Clip", "Match / folder", "Saved", "Play", "Play + switch"});
         clips->setSelectionBehavior(QAbstractItemView::SelectRows);
         clips->setSelectionMode(QAbstractItemView::SingleSelection);
         clips->setEditTriggers(QAbstractItemView::NoEditTriggers);
         clips->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
         clips->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
         clips->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        clips->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+        clips->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
         layout->addWidget(clips);
         auto *buttons = new QHBoxLayout; layout->addLayout(buttons);
         auto *refresh = new QPushButton("Refresh clips", this);
         auto *playButton = new QPushButton("Play selected clip", this);
         buttons->addWidget(refresh); buttons->addWidget(playButton);
-        switchScene = new QCheckBox("Switch to replay scene when playing a clip", this);
+        switchScene = new QCheckBox("Switch scene for Play selected clip / double-click", this);
         layout->addWidget(switchScene);
         auto *speedRow = new QHBoxLayout; layout->addLayout(speedRow);
         speedRow->addWidget(new QLabel("Playback speed", this));
@@ -69,15 +72,17 @@ public:
         return item ? item->data(Qt::UserRole).toString() : QString();
     }
     void playSelected() {
-        const auto path = selectedPath();
+        playClip(selectedPath(), switchScene->isChecked());
+    }
+    void playClip(const QString &path, bool changeScene) {
         if (path.isEmpty()) { status->setText("Select a clip first."); return; }
         if (!QFileInfo::exists(path)) { status->setText("This clip has moved or been deleted. Refresh the list."); return; }
         if (changeSpeed) changeSpeed(speed->value());
-        if (play) play(path, switchScene->isChecked());
+        if (play) play(path, changeScene);
     }
     void refreshClips() {
         struct Entry { QFileInfo file; QString label, path; };
-        QList<Entry> entries; QSet<QString> seen;
+        QList<Entry> entries; QSet<QString> seen, scannedFolders;
         auto add = [&](const QFileInfo &file, const QString &label) {
             if (!file.isFile()) return;
             auto path = file.canonicalFilePath();
@@ -87,7 +92,13 @@ public:
         if (latest) { auto path = latest(); if (!path.isEmpty()) add(QFileInfo(path), "Current replay"); }
         if (folders) for (const auto &folder : folders()) {
             if (folder.second.trimmed().isEmpty()) continue;
-            for (const auto &file : QDir(folder.second).entryInfoList(QDir::Files | QDir::Readable)) {
+            const auto directory = QFileInfo(folder.second).canonicalFilePath();
+            if (directory.isEmpty() || scannedFolders.contains(directory)) continue;
+            scannedFolders.insert(directory);
+            QDirIterator iterator(directory, QDir::Files | QDir::Readable, QDirIterator::Subdirectories);
+            while (iterator.hasNext()) {
+                iterator.next();
+                const auto file = iterator.fileInfo();
                 const auto ext = file.suffix().toLower();
                 if (QStringList{"mkv", "mp4", "mov", "flv", "ts", "m4v", "avi", "webm"}.contains(ext)) add(file, folder.first);
             }
@@ -95,6 +106,15 @@ public:
         std::sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) {
             return a.file.lastModified() == b.file.lastModified() ? a.path < b.path : a.file.lastModified() > b.file.lastModified();
         });
+        // Keep existing row buttons alive during periodic scans when nothing changed.
+        bool unchanged = clips->rowCount() == entries.size();
+        for (int row = 0; unchanged && row < entries.size(); ++row) {
+            const auto &e = entries[row];
+            unchanged = clips->item(row, 0) && clips->item(row, 0)->data(Qt::UserRole).toString() == e.path &&
+                clips->item(row, 1)->text() == e.label &&
+                clips->item(row, 2)->text() == e.file.lastModified().toString("yyyy-MM-dd HH:mm:ss");
+        }
+        if (unchanged) return;
         auto selected = selectedPath();
         clips->clearSelection();
         clips->setCurrentCell(-1, -1);
@@ -105,6 +125,15 @@ public:
             clips->setItem(row, 0, name);
             auto *label = new QTableWidgetItem(e.label); label->setToolTip(e.path); clips->setItem(row, 1, label);
             clips->setItem(row, 2, new QTableWidgetItem(e.file.lastModified().toString("yyyy-MM-dd HH:mm:ss")));
+            auto *playHere = new QPushButton("Play", clips);
+            playHere->setToolTip("Play / prepare this clip without changing the current scene");
+            playHere->setAccessibleName("Play " + e.file.fileName());
+            auto *playSwitch = new QPushButton("Play + switch scene", clips);
+            playSwitch->setAccessibleName("Play and switch scene: " + e.file.fileName());
+            connect(playHere, &QPushButton::clicked, this, [this, path = e.path] { playClip(path, false); });
+            connect(playSwitch, &QPushButton::clicked, this, [this, path = e.path] { playClip(path, true); });
+            clips->setCellWidget(row, 3, playHere);
+            clips->setCellWidget(row, 4, playSwitch);
             if (e.path == selected) clips->selectRow(row);
         }
     }

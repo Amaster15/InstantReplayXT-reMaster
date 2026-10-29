@@ -95,7 +95,7 @@ public:
     }
     QNetworkReply *get(const QUrl &url) {
         QNetworkRequest request(url);
-        request.setRawHeader("User-Agent", "InstantReplayXT/2.0.6");
+        request.setRawHeader("User-Agent", "InstantReplayXT/2.0.7");
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
         request.setTransferTimeout(30000);
         return network.get(request);

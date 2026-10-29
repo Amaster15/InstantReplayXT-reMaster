@@ -41,6 +41,12 @@ dependencies, or Ubuntu 24.04's Qt 6.4 on Linux. The source builds with newer Qt
 - Clean up timers, callbacks, hotkeys and the settings dialog on unload.
 - Keep the original `InstantReplay` and `replayCallout_data` scene collection settings keys.
 
+## Clip row controls and backup scanning (2.0.7)
+
+Each clip now has **Play** and **Play + switch scene** buttons. Play prepares the clip without changing scenes (or plays it if you are already on the replay scene). Play + switch scene plays it in the configured replay scene and returns after it ends. These row buttons ignore the checkbox; that checkbox still controls **Play selected clip** and double-click playback.
+
+The library scans the single backup folder and every configured match backup folder, including disabled matches and nested subfolders. Duplicate file paths appear once. It refreshes while the tab is open; **Refresh clips** scans immediately. Directory symlinks are not followed during recursive scanning.
+
 ## Updates tab (2.0.6)
 
 Install 2.0.6 manually once to get the **Updates** tab. Click **Check for updates** to check this repository's latest stable GitHub release, then **Download and install after OBS closes**. The plugin selects the Windows x64 EXE or Linux x86_64 installer, verifies the size and GitHub SHA256 digest, and queues setup for the current plugin folder. No update checks or downloads happen automatically.
@@ -123,8 +129,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.6-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.6-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.7-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.7-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -168,7 +174,7 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.6-obs31-windows-x64-setup.exe`.
+Close OBS, then run `InstantReplayXT-2.0.7-obs31-windows-x64-setup.exe`.
 Accept the Windows administrator prompt. Setup includes a destination folder selector and remembers the previous install location for upgrades. The recommended default is:
 
 ```text
@@ -196,7 +202,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.6-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.7-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -210,8 +216,8 @@ To use a custom plugin folder, pass `--install-dir "/absolute/OBS-plugin-search-
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.6-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.6-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.7-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.7-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,
