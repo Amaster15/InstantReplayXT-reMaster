@@ -69,7 +69,7 @@ std::string get_backup_path()
 
 std::string get_replay_source_name()
 {
-	return (co->ui->replaySourceNameEdit->text() + (co->ui->library->playbackMode->currentIndex() == 1 ? " (VLC live)" : "")).toStdString();
+	return (co->ui->replaySourceNameEdit->text() + (co->ui->library->usesVlc() ? " (VLC live)" : "")).toStdString();
 }
 
 
@@ -145,17 +145,18 @@ replayCallout::replayCallout(QWidget *parent)
     };
     ui->library->play = [](const QString &path, bool switchScene) { replay_play_clip(path.toStdString(), switchScene); };
     ui->library->changeSpeed = [](int percent) { replay_set_speed(percent); };
-    connect(ui->library->playbackMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int mode) {
+    connect(ui->library->playbackMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
         if (property("loadingReplaySettings").toBool()) return;
+        const bool useVlc = ui->library->usesVlc();
         QString error;
-        if (replay_is_busy()) error = "Wait until the current replay or save finishes before changing player mode.";
-        else configureReplayMode(ui->sceneLineEdit->text(), ui->replaySourceNameEdit->text(), mode == 1, error);
+        if (!replay_prepare_player_change()) error = "A replay file is being saved. Try changing player mode after the save finishes.";
+        else configureReplayMode(ui->sceneLineEdit->text(), ui->replaySourceNameEdit->text(), useVlc, error);
         if (!error.isEmpty()) {
-            setProperty("loadingReplaySettings", true); ui->library->playbackMode->setCurrentIndex(mode == 1 ? 0 : 1); setProperty("loadingReplaySettings", false);
+            setProperty("loadingReplaySettings", true); ui->library->setUseVlc(!useVlc); setProperty("loadingReplaySettings", false);
             replay_status(error.toStdString()); return;
         }
         replay_set_speed(ui->library->speed->value());
-        replay_status(mode == 1 ? "VLC live slow motion is ready. Speed changes keep the clip running." : "Standard Media Source selected. Speed changes reload the clip; choose VLC for live slow motion.");
+        replay_status(useVlc ? "VLC live slow motion is ready. Speed changes keep the clip running." : "Standard Media Source selected. Speed changes reload the clip; choose VLC for live slow motion.");
         saveSettings();
     });
     ui->matches->legacyFolder = [this] { return ui->filePathBackupEdit->text(); };
@@ -234,7 +235,8 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 	{
 		obs_data_t *obj = obs_data_create();
         co->ui->matches->save(obj);
-        obs_data_set_bool(obj, "vlcReplayPlayer", co->ui->library->playbackMode->currentIndex() == 1);
+        obs_data_set_int(obj, "playerModeVersion", 1);
+        obs_data_set_bool(obj, "vlcReplayPlayer", co->ui->library->usesVlc());
         obs_data_set_int(obj, "speedPercent", co->ui->library->speed->value());
         obs_data_set_bool(obj, "librarySwitchScene", co->ui->library->switchScene->isChecked());
 		QString qstr;
@@ -317,7 +319,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		co->ui->filePathBackupEdit->setText(qstr);
 		qstr = QString::fromUtf8(obs_data_get_string(obj, "sourceName"));
 		co->ui->replaySourceNameEdit->setText(qstr);
-        co->ui->library->playbackMode->setCurrentIndex(obs_data_get_bool(obj, "vlcReplayPlayer") ? 1 : 0);
+        co->ui->library->setUseVlc(!obs_data_has_user_value(obj, "playerModeVersion") || obs_data_get_bool(obj, "vlcReplayPlayer"));
         obs_data_set_default_int(obj, "speedPercent", 100);
         co->ui->library->speed->setValue(int(obs_data_get_int(obj, "speedPercent")));
         co->ui->sceneLineEdit->refresh(); co->ui->replaySourceNameEdit->refresh(); co->ui->matches->vlcName->refresh();
@@ -326,11 +328,11 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
         QTimer::singleShot(0, co.data(), [collection = co->configCollection] {
             if (!co || !co->configReady || co->configCollection != collection) return;
             auto *existing = obs_get_source_by_name((co->ui->replaySourceNameEdit->text() + " (VLC live)").toUtf8().constData());
-            const bool restore = existing || co->ui->library->playbackMode->currentIndex() == 1;
+            const bool restore = existing || co->ui->library->usesVlc();
             obs_source_release(existing);
             if (restore) {
                 QString error;
-                if (!configureReplayMode(co->ui->sceneLineEdit->text(), co->ui->replaySourceNameEdit->text(), co->ui->library->playbackMode->currentIndex() == 1, error))
+                if (!configureReplayMode(co->ui->sceneLineEdit->text(), co->ui->replaySourceNameEdit->text(), co->ui->library->usesVlc(), error))
                     replay_status(error.toStdString());
             }
             replay_set_speed(co->ui->library->speed->value());
@@ -339,6 +341,15 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 
 		obs_data_release(obj);
 	}
+}
+
+bool replay_ensure_player()
+{
+    if (!co) return false;
+    QString error;
+    const bool ok = configureReplayMode(co->ui->sceneLineEdit->text(), co->ui->replaySourceNameEdit->text(), co->ui->library->usesVlc(), error);
+    if (!ok) replay_status(error.toStdString());
+    return ok;
 }
 
 void replay_callout_init()

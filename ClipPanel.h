@@ -25,6 +25,8 @@ public:
     QCheckBox *switchScene;
     QSlider *speed;
     QComboBox *playbackMode;
+    bool usesVlc() const { return playbackMode->currentData().toInt() == 1; }
+    void setUseVlc(bool vlc) { playbackMode->setCurrentIndex(playbackMode->findData(vlc ? 1 : 0)); }
     QLabel *modeHint;
     QLabel *status;
     // Named folders include inactive/disabled matches; they remain part of the library.
@@ -75,7 +77,8 @@ public:
         auto *modeRow = new QHBoxLayout; layout->addLayout(modeRow);
         modeRow->addWidget(new QLabel("Replay player", this));
         playbackMode = new QComboBox(this);
-        playbackMode->addItems({"Standard Media Source", "VLC live slow motion"});
+        playbackMode->addItem("VLC live slow motion", 1);
+        playbackMode->addItem("Standard Media Source", 0);
         playbackMode->setAccessibleName("Replay player mode"); modeRow->addWidget(playbackMode, 1);
         auto *speedRow = new QHBoxLayout; layout->addLayout(speedRow);
         speedRow->addWidget(new QLabel("Playback speed", this));
@@ -85,7 +88,7 @@ public:
         auto *normal = new QPushButton("Normal speed", this); speedRow->addWidget(normal);
         modeHint = new QLabel(this); modeHint->setWordWrap(true); layout->addWidget(modeHint);
         auto updateHint = [this] {
-            modeHint->setText(playbackMode->currentIndex() == 0
+            modeHint->setText(!usesVlc()
                 ? "Standard Media Source reloads the clip when speed changes. Try VLC live slow motion for speed changes without reloading."
                 : "VLC changes speed during playback without reloading the clip. Requires VLC 3.x (64-bit on Windows). 25% = quarter speed; 100% = normal; 200% = double speed.");
         };
@@ -93,7 +96,7 @@ public:
         status = new QLabel(this); status->setWordWrap(true); status->setTextFormat(Qt::PlainText); layout->addWidget(status);
         auto *debounce = new QTimer(this); debounce->setSingleShot(true); debounce->setInterval(180);
         connect(speed, &QSlider::valueChanged, this, [=](int percent) { value->setText(QString::number(percent) + "%");
-            if (playbackMode->currentIndex() == 1) { if (!debounce->isActive()) debounce->start(50); }
+            if (usesVlc()) { if (!debounce->isActive()) debounce->start(50); }
             else debounce->start(180); });
         connect(debounce, &QTimer::timeout, this, [this] { if (changeSpeed) changeSpeed(speed->value()); });
         connect(normal, &QPushButton::clicked, this, [this] { speed->setValue(100); });

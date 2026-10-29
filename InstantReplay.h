@@ -42,3 +42,6 @@ void replay_set_speed(int percent);
 std::string replay_current_file();
 
 bool replay_is_busy();
+
+bool replay_prepare_player_change();
+bool replay_ensure_player();

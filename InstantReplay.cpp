@@ -10,6 +10,7 @@
 #include <atomic>
 #include <filesystem>
 #include <vector>
+#include <memory>
 
 namespace {
 namespace fs = std::filesystem;
@@ -273,9 +274,20 @@ public:
         timer.start(pause);
     }
     void playLatest(bool manual = false, const std::string &clip = "", bool library = false) {
-        if (phase != Idle) { replay_status("A replay is already in progress. Wait for it to finish before selecting another clip."); return; }
         if (!get_enabled()) { replay_status("Enable Instant Replay in Replay settings first."); return; }
-        finishSpeed();
+        if (phase == Saving || phase == ReleasingMedia || phase == Processing) {
+            replay_status("A replay file is being saved. Try playing the clip after the save finishes."); return;
+        }
+        std::error_code selectionError;
+        if (!clip.empty() && !fs::is_regular_file(fs::u8path(clip), selectionError)) {
+            replay_status("This clip has moved or been deleted. Refresh the list."); return;
+        }
+        // Preserve the original return scene when replacing an automatic replay.
+        std::unique_ptr<obs_source_t, decltype(&obs_source_release)> returnScene(
+            !manual && original ? obs_source_get_ref(original) : nullptr, obs_source_release);
+        if (media) obs_source_media_stop(media);
+        reset(false); // Cancel old end timers, speed seeks and audio muting.
+        if (!replay_ensure_player()) return;
         scene = obs_get_source_by_name(get_scene().c_str());
         media = obs_get_source_by_name(get_replay_source_name().c_str());
         original = obs_frontend_get_current_scene();
@@ -308,7 +320,9 @@ public:
         libraryPlayback = library;
         playbackTicks = 0;
         // Manual scene selection stays on that scene; hotkey playback returns to live.
-        if (manual || original == scene) { obs_source_release(original); original = nullptr; }
+        if (manual || original == scene) {
+            obs_source_release(original); original = manual ? nullptr : returnScene.release();
+        }
         pause = std::max(0, get_pause());
         length = std::max(1, get_replay());
         desktop = get_D_mute(); aux = get_A_mute();
@@ -443,3 +457,11 @@ void replay_set_speed(int percent) {
 std::string replay_current_file() { return controller ? controller->lastReplay : ""; }
 
 bool replay_is_busy() { return controller && (controller->phase != ReplayController::Idle || controller->speedSource); }
+
+bool replay_prepare_player_change() {
+    if (!controller) return true;
+    if (controller->phase == ReplayController::Saving || controller->phase == ReplayController::ReleasingMedia || controller->phase == ReplayController::Processing) return false;
+    if (controller->media) obs_source_media_stop(controller->media);
+    controller->reset(false);
+    return true;
+}
