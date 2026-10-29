@@ -30,7 +30,7 @@ struct VlcMediaTrack {
     char *language, *description;
 };
 struct Vlc {
-    QLibrary library;
+    QLibrary library, core;
     libvlc_instance_t *instance = nullptr;
 #define API(ret, name, ...) ret (*name)(__VA_ARGS__) = nullptr
     API(libvlc_instance_t *, libvlc_new, int, const char *const *);
@@ -64,15 +64,28 @@ struct Vlc {
         std::lock_guard<std::mutex> guard(loadMutex);
         if (instance) return true;
 #ifdef _WIN32
-        QSettings registry("HKEY_LOCAL_MACHINE\\SOFTWARE\\VideoLAN\\VLC", QSettings::NativeFormat);
-        const auto folder = registry.value("InstallDir").toString();
-        if (folder.isEmpty()) return false;
+        QString folder;
+        for (const auto &key : {"HKEY_LOCAL_MACHINE\\SOFTWARE\\VideoLAN\\VLC", "HKEY_CURRENT_USER\\SOFTWARE\\VideoLAN\\VLC"}) {
+            QSettings registry(QString::fromLatin1(key), QSettings::Registry64Format);
+            const auto candidate = registry.value("InstallDir").toString();
+            if (!candidate.isEmpty() && QFileInfo::exists(candidate + "/libvlc.dll")) { folder = candidate; break; }
+        }
+        if (folder.isEmpty()) {
+            const auto programFiles = qEnvironmentVariable("ProgramW6432", qEnvironmentVariable("ProgramFiles"));
+            const auto candidate = programFiles + "/VideoLAN/VLC";
+            if (!programFiles.isEmpty() && QFileInfo::exists(candidate + "/libvlc.dll")) folder = candidate;
+        }
+        if (folder.isEmpty()) { blog(LOG_WARNING, "[InstantReplayXT] VLC was not found in the registry or Program Files."); return false; }
+        // Load the sibling core explicitly, without changing the process DLL
+        // search path used by OBS and other plugins.
+        core.setFileName(folder + "/libvlccore.dll");
+        if (!core.load()) { blog(LOG_WARNING, "[InstantReplayXT] VLC core: %s", qPrintable(core.errorString())); return false; }
         library.setFileName(folder + "/libvlc.dll");
 #else
         library.setFileName("libvlc.so.5");
 #endif
-        if (!library.load()) return false;
-#define LOAD(name) name = reinterpret_cast<decltype(name)>(library.resolve(#name)); if (!name) return false
+        if (!library.load()) { blog(LOG_WARNING, "[InstantReplayXT] VLC library: %s", qPrintable(library.errorString())); return false; }
+#define LOAD(name) name = reinterpret_cast<decltype(name)>(library.resolve(#name)); if (!name) { blog(LOG_WARNING, "[InstantReplayXT] Missing VLC API: %s", #name); return false; }
         LOAD(libvlc_new); LOAD(libvlc_release); LOAD(libvlc_get_version); LOAD(libvlc_clock);
         LOAD(libvlc_media_player_get_media); LOAD(libvlc_media_tracks_get); LOAD(libvlc_media_tracks_release);
         LOAD(libvlc_media_new_path); LOAD(libvlc_media_release); LOAD(libvlc_media_player_new);
@@ -84,9 +97,10 @@ struct Vlc {
         LOAD(libvlc_audio_set_callbacks); LOAD(libvlc_audio_set_format);
 #undef LOAD
         // VLC 4 changes callback and control ABIs; reject it instead of guessing.
-        if (std::strncmp(libvlc_get_version(), "3.", 2) != 0) return false;
+        if (std::strncmp(libvlc_get_version(), "3.", 2) != 0) { blog(LOG_WARNING, "[InstantReplayXT] VLC 3.x required; found %s", libvlc_get_version()); return false; }
         const char *options[] = {"--no-video-title-show", "--no-snapshot-preview", "--no-osd", "--no-stats", "--no-spu"};
         instance = libvlc_new(5, options);
+        if (!instance) blog(LOG_WARNING, "[InstantReplayXT] VLC could not create a playback instance.");
         return instance != nullptr;
     }
 } vlc;

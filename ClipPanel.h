@@ -32,20 +32,20 @@ public:
     std::function<QString()> latest;
     std::function<void(const QString &, bool)> play;
     std::function<void(int)> changeSpeed;
-    QIcon playbackIcon(bool switchScene) const {
+    QIcon playbackIcon(bool showScreen) const {
         QIcon icon;
         for (const auto mode : {QIcon::Normal, QIcon::Disabled}) {
             QPixmap image(48, 48); image.setDevicePixelRatio(2); image.fill(Qt::transparent);
             QPainter painter(&image); painter.setRenderHint(QPainter::Antialiasing);
             const auto color = palette().color(mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active, QPalette::ButtonText);
             painter.setPen(QPen(color, 1.6));
-            if (switchScene) {
+            if (showScreen) {
                 painter.drawRoundedRect(QRectF(2, 3, 20, 15), 2, 2);
                 painter.drawLine(QPointF(12, 18), QPointF(12, 21));
                 painter.drawLine(QPointF(8, 21), QPointF(16, 21));
             }
             painter.setPen(Qt::NoPen); painter.setBrush(color);
-            painter.drawPolygon(switchScene ? QPolygonF{QPointF(9, 6), QPointF(9, 15), QPointF(16, 10.5)}
+            painter.drawPolygon(showScreen ? QPolygonF{QPointF(9, 6), QPointF(9, 15), QPointF(16, 10.5)}
                                             : QPolygonF{QPointF(7, 4), QPointF(7, 20), QPointF(20, 12)});
             painter.end(); icon.addPixmap(image, mode);
         }
