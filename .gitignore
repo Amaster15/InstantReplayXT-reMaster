@@ -1,0 +1,8 @@
+/upstream/
+/build*/
+/dist/
+*.o
+*.so
+/.deps/
+/artifacts/
+__pycache__/
