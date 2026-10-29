@@ -1,3 +1,4 @@
+#include "ObsChoice.h"
 #pragma once
 #include "MatchPanel.h"
 #include "ClipPanel.h"
@@ -39,7 +40,7 @@ public:
 	QSpinBox *replaySpinBox;
 
 	QLabel *sceneLabel;
-	QLineEdit *sceneLineEdit;
+	ObsChoice *sceneLineEdit;
 	QLabel *sourceLabel;
 	QLineEdit *sourceLineEdit;
 
@@ -54,7 +55,7 @@ public:
 	QLineEdit *filePathBackupEdit;
 
 	QLabel *replaySourceNameLabel;
-	QLineEdit *replaySourceNameEdit;
+	ObsChoice *replaySourceNameEdit;
 
 	QDialogButtonBox *closeButton;
 	QLineEdit *replayFolderEdit;
@@ -77,6 +78,12 @@ public:
         tabs->addTab(matches, "Matches / BRB playlist");
         library = new ClipPanel;
         tabs->addTab(library, "Clip library");
+        auto *saveRow = new QHBoxLayout;
+        auto *saveNote = new QLabel("Changes save to a separate config file as you edit.", replayCallout);
+        saveNote->setObjectName("settingsSaveStatus"); saveNote->setWordWrap(true); saveRow->addWidget(saveNote, 1);
+        auto *saveSettings = new QPushButton("Save settings", replayCallout);
+        saveSettings->setObjectName("saveSettingsButton"); saveRow->addWidget(saveSettings);
+        outer->addLayout(saveRow);
         updates = new UpdatePanel;
         tabs->addTab(updates, "Updates");
         replayCallout->resize(800, 720);
@@ -129,7 +136,7 @@ public:
 		sceneLabel->setObjectName(QStringLiteral("sceneLabel"));
 		replayLayout->addWidget(sceneLabel, 4, 1, 1, 1);
 
-		sceneLineEdit = new QLineEdit(replayCallout);
+		sceneLineEdit = new ObsChoice(replayCallout);
 		sceneLineEdit->setObjectName(QStringLiteral("sceneLineEdit"));
 		sceneLineEdit->setText("Replay Scene");
 		replayLayout->addWidget(sceneLineEdit, 4, 2, 1, 2);
@@ -176,7 +183,7 @@ public:
 		replaySourceNameLabel->setObjectName(QStringLiteral("replaySourceNameLabel"));
 		replayLayout->addWidget(replaySourceNameLabel, 9, 1, 1, 1);
 
-		replaySourceNameEdit = new QLineEdit(replayCallout);
+		replaySourceNameEdit = new ObsChoice(replayCallout);
 		replaySourceNameEdit->setObjectName(QStringLiteral("replaySourceNameEdit"));
 		replaySourceNameEdit->setText("Instant Replay Media Source");
 		replayLayout->addWidget(replaySourceNameEdit, 9, 2, 1, 2);
@@ -215,7 +222,7 @@ public:
 
 	void retranslateUi(QDialog *replayCallout)
 	{
-		replayCallout->setWindowTitle("Instant Replay XT 2.0.9");
+		replayCallout->setWindowTitle("Instant Replay XT 2.0.10");
 		enableLabel->setText(QApplication::translate("replayCallout", "Enable", Q_NULLPTR));
 		waitLabel->setText(QApplication::translate("replayCallout", "WritePause", Q_NULLPTR));
 		pauseLabel->setText(QApplication::translate("replayCallout", "TransitionPause", Q_NULLPTR));

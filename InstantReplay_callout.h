@@ -15,6 +15,13 @@ public:
 	replayCallout(QWidget *parent);
 
 	void closeEvent(QCloseEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
+    void requestSettingsSave();
+    void saveSettings();
+    bool saveConfig();
+    QString configCollection;
+    bool configReady = false;
+    QTimer *settingsSaveTimer = nullptr;
 
 	public slots:
 	void ShowHideDialog();

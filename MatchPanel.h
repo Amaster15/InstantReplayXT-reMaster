@@ -1,4 +1,5 @@
 #pragma once
+#include "ObsChoice.h"
 #include <obs-module.h>
 #include <QWidget>
 #include <QTableWidget>
@@ -21,11 +22,12 @@ class MatchPanel : public QWidget {
 public:
     QTableWidget *folders;
     QCheckBox *enabled, *autoRefresh;
-    QLineEdit *vlcName;
+    ObsChoice *vlcName;
     QLabel *activeLabel, *status;
     int active = -1;
     bool pendingRefresh = false, loading = false;
     std::function<QString()> legacyFolder;
+    std::function<void()> settingsChanged;
 
     MatchPanel(QWidget *parent = nullptr) : QWidget(parent) {
         auto *layout = new QVBoxLayout(this);
@@ -81,8 +83,8 @@ public:
         auto *note = new QLabel("Normally keep one match active for all its clips, then click Next match. Disabled rows are skipped. At the end, select a match explicitly; the list does not wrap. Each folder has its own backup numbering. Removing a row keeps its files.", this);
         note->setWordWrap(true); layout->addWidget(note);
         auto *vlcRow = new QHBoxLayout; layout->addLayout(vlcRow);
-        vlcRow->addWidget(new QLabel("BRB VLC source name", this));
-        vlcName = new QLineEdit(this); vlcName->setPlaceholderText("Exact OBS VLC Video Source name"); vlcRow->addWidget(vlcName);
+        vlcRow->addWidget(new QLabel("BRB VLC source", this));
+        vlcName = new ObsChoice(this); vlcName->options = [] { return obsNames("vlc_source"); }; vlcName->refresh(); vlcRow->addWidget(vlcName);
         autoRefresh = new QCheckBox("Refresh VLC after backups and match changes (wait while source is visible)", this); layout->addWidget(autoRefresh);
         auto *refresh = new QPushButton("Refresh VLC now (restarts playlist)", this); layout->addWidget(refresh);
         status = new QLabel("Choose a VLC Video Source to manage its playlist from these folders.", this);
@@ -114,6 +116,7 @@ public:
         folders->setItem(row, 1, new QTableWidgetItem(name));
         folders->setItem(row, 2, new QTableWidgetItem(path));
         folders->selectRow(row);
+        if (!loading && settingsChanged) settingsChanged();
     }
     void selectNext(int after) {
         for (int row = after + 1; row < folders->rowCount(); ++row)
@@ -122,6 +125,7 @@ public:
         status->setText("No next enabled match. Choose a match or add a folder; backups are paused in match mode.");
     }
     void showActive() {
+        if (!loading && settingsChanged) settingsChanged();
         activeLabel->setText(!enabled->isChecked() ? "Match mode is off: using the single backup folder." :
             usable(active) ? "Active: " + folders->item(active, 1)->text() + " — " + activePath() : "No active match — match backups paused.");
     }

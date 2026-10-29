@@ -1,6 +1,7 @@
 #include "InstantReplay_callout.h"
 #include "InstantReplay.h"
 #include "ReplayMode.h"
+#include "SettingsStore.h"
 #include <obs-frontend-api.h>
 #include <obs-module.h>
 #include <QtWidgets/QMainWindow>
@@ -9,10 +10,12 @@
 
 #include <QPointer>
 #include <QCloseEvent>
+#include <QHideEvent>
 #include <QFileDialog>
 
 QPointer<replayCallout> co;
 static QPointer<QAction> settingsAction;
+static void save_replay_callout(obs_data_t *, bool, void *);
 
 bool get_enabled()
 {
@@ -99,6 +102,31 @@ replayCallout::replayCallout(QWidget *parent)
         if (helper) ui->updates->helperPath = QString::fromUtf8(helper);
         bfree(helper);
     }
+    if (obs_current_module()) {
+        char *path = obs_module_config_path("settings.json");
+        if (path) setProperty("irxtConfigPath", QString::fromUtf8(path));
+        bfree(path);
+    }
+    ui->sceneLineEdit->options = [] { return obsNames(); };
+    ui->replaySourceNameEdit->options = [this] { return replaySourceNames(ui->sceneLineEdit->text()); };
+    ui->sceneLineEdit->refresh(); ui->replaySourceNameEdit->refresh();
+    settingsSaveTimer = new QTimer(this);
+    settingsSaveTimer->setSingleShot(true); settingsSaveTimer->setInterval(500);
+    connect(settingsSaveTimer, &QTimer::timeout, this, &replayCallout::saveSettings);
+    for (auto *field : findChildren<QLineEdit *>())
+        connect(field, &QLineEdit::textChanged, this, &replayCallout::requestSettingsSave);
+    for (auto *check : findChildren<QCheckBox *>())
+        connect(check, &QCheckBox::toggled, this, &replayCallout::requestSettingsSave);
+    for (auto *number : findChildren<QSpinBox *>())
+        connect(number, qOverload<int>(&QSpinBox::valueChanged), this, &replayCallout::requestSettingsSave);
+    for (auto *choice : {ui->sceneLineEdit, ui->replaySourceNameEdit, ui->matches->vlcName})
+        connect(choice, qOverload<int>(&QComboBox::currentIndexChanged), this, &replayCallout::requestSettingsSave);
+    connect(ui->sceneLineEdit, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] { ui->replaySourceNameEdit->refresh(); });
+    connect(ui->library->speed, &QSlider::valueChanged, this, &replayCallout::requestSettingsSave);
+    ui->matches->settingsChanged = [this] { requestSettingsSave(); };
+    connect(findChild<QPushButton *>("saveSettingsButton"), &QPushButton::clicked, this, [this] {
+        saveSettings();
+    });
     ui->library->folders = [this] {
         QList<QPair<QString, QString>> result;
         result.append({"Backup folder", ui->filePathBackupEdit->text().trimmed()});
@@ -128,7 +156,7 @@ replayCallout::replayCallout(QWidget *parent)
         }
         replay_set_speed(ui->library->speed->value());
         replay_status(mode == 1 ? "VLC live slow motion is ready. Speed changes keep the clip running." : "Standard Media Source selected. Speed changes reload the clip; choose VLC for live slow motion.");
-        obs_frontend_save();
+        saveSettings();
     });
     ui->matches->legacyFolder = [this] { return ui->filePathBackupEdit->text(); };
 
@@ -136,7 +164,7 @@ replayCallout::replayCallout(QWidget *parent)
 		SIGNAL(clicked()), this, SLOT(close()));
     auto browse = [this](QLineEdit *field) {
         const QString path = QFileDialog::getExistingDirectory(this, "Choose replay folder", field->text());
-        if (!path.isEmpty()) { field->setText(path); obs_frontend_save(); }
+        if (!path.isEmpty()) { field->setText(path); saveSettings(); }
     };
     connect(ui->playButton, &QPushButton::clicked, this, [] { instant_replay_play_hotkey(nullptr, OBS_INVALID_HOTKEY_ID, nullptr, true); });
     connect(ui->replayBrowse, &QPushButton::clicked, this, [this, browse] { browse(ui->replayFolderEdit); });
@@ -155,9 +183,47 @@ void replayCallout::ShowHideDialog()
 	}
 }
 
+void replayCallout::requestSettingsSave()
+{
+    if (!property("loadingReplaySettings").toBool()) {
+        saveConfig(); // Persist before returning to OBS's event loop.
+        settingsSaveTimer->start();
+    }
+}
+
+bool replayCallout::saveConfig()
+{
+    if (!configReady || property("loadingReplaySettings").toBool()) return false;
+    auto *snapshot = obs_data_create();
+    save_replay_callout(snapshot, true, nullptr);
+    const auto json = QJsonDocument::fromJson(QByteArray(obs_data_get_json(snapshot))).object();
+    obs_data_release(snapshot);
+    QString error;
+    const auto path = property("irxtConfigPath").toString();
+    const bool ok = SettingsStore(path).save(configCollection, json, error);
+    auto *label = findChild<QLabel *>("settingsSaveStatus");
+    label->setText(ok ? "Settings saved to config file." : error);
+    label->setToolTip(path);
+    if (!ok) blog(LOG_WARNING, "[InstantReplayXT] %s", qPrintable(error));
+    return ok;
+}
+
+void replayCallout::saveSettings()
+{
+    settingsSaveTimer->stop();
+    if (!property("loadingReplaySettings").toBool()) { saveConfig(); obs_frontend_save(); }
+}
+
+void replayCallout::hideEvent(QHideEvent *event)
+{
+    // Escape and the Tools menu hide a QDialog without calling closeEvent.
+    if (settingsSaveTimer->isActive()) saveSettings();
+    QDialog::hideEvent(event);
+}
+
 void replayCallout::closeEvent(QCloseEvent* event)
 {
-	obs_frontend_save();
+    saveSettings();
 	QDialog::closeEvent(event);
 }
 
@@ -169,6 +235,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		obs_data_t *obj = obs_data_create();
         co->ui->matches->save(obj);
         obs_data_set_bool(obj, "vlcReplayPlayer", co->ui->library->playbackMode->currentIndex() == 1);
+        obs_data_set_int(obj, "speedPercent", co->ui->library->speed->value());
         obs_data_set_bool(obj, "librarySwitchScene", co->ui->library->switchScene->isChecked());
 		QString qstr;
 		std::string str;
@@ -204,17 +271,30 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 	}
 	else
 	{
-		obs_data_t *obj = obs_data_get_obj(save_data, "replayCallout_data");
+        co->configReady = false;
+        co->settingsSaveTimer->stop();
+        co->setProperty("loadingReplaySettings", true);
+        char *collection = obs_frontend_get_current_scene_collection();
+        co->configCollection = QString::fromUtf8(collection ? collection : ""); bfree(collection);
+        const auto recovered = SettingsStore(co->property("irxtConfigPath").toString()).load(co->configCollection);
+        if (recovered["replayCallout_data"].isObject()) {
+            auto *config = obs_data_create_from_json(QJsonDocument(recovered).toJson().constData());
+            for (const auto *key : {"replayCallout_data"}) {
+                auto *value = obs_data_get_obj(config, key);
+                if (value) obs_data_set_obj(save_data, key, value);
+                obs_data_release(value);
+            }
+            obs_data_release(config);
+        }
+        obs_data_t *obj = obs_data_get_obj(save_data, "replayCallout_data");
 		QString qstr;
 		if(!obj)
 		{
 			obj = obs_data_create();
 		}
-        co->setProperty("loadingReplaySettings", true);
 		co->ui->matches->load(obj);
         co->ui->library->switchScene->setChecked(obs_data_get_bool(obj, "librarySwitchScene"));
-        co->ui->library->speed->setValue(100);
-        replay_set_speed(100);
+
         obs_data_set_default_int(obj, "wait", 10);
         obs_data_set_default_string(obj, "scene", "Replay Scene");
         obs_data_set_default_string(obj, "sourceName", "Instant Replay Media Source");
@@ -238,7 +318,23 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		qstr = QString::fromUtf8(obs_data_get_string(obj, "sourceName"));
 		co->ui->replaySourceNameEdit->setText(qstr);
         co->ui->library->playbackMode->setCurrentIndex(obs_data_get_bool(obj, "vlcReplayPlayer") ? 1 : 0);
+        obs_data_set_default_int(obj, "speedPercent", 100);
+        co->ui->library->speed->setValue(int(obs_data_get_int(obj, "speedPercent")));
+        co->ui->sceneLineEdit->refresh(); co->ui->replaySourceNameEdit->refresh(); co->ui->matches->vlcName->refresh();
         co->setProperty("loadingReplaySettings", false);
+        co->configReady = !co->configCollection.isEmpty();
+        QTimer::singleShot(0, co.data(), [collection = co->configCollection] {
+            if (!co || !co->configReady || co->configCollection != collection) return;
+            auto *existing = obs_get_source_by_name((co->ui->replaySourceNameEdit->text() + " (VLC live)").toUtf8().constData());
+            const bool restore = existing || co->ui->library->playbackMode->currentIndex() == 1;
+            obs_source_release(existing);
+            if (restore) {
+                QString error;
+                if (!configureReplayMode(co->ui->sceneLineEdit->text(), co->ui->replaySourceNameEdit->text(), co->ui->library->playbackMode->currentIndex() == 1, error))
+                    replay_status(error.toStdString());
+            }
+            replay_set_speed(co->ui->library->speed->value());
+        });
 		//---
 
 		obs_data_release(obj);
