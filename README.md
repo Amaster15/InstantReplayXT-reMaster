@@ -18,9 +18,9 @@ Compatibility with future OBS major versions must be rechecked; “31+” is not
 | Shared module load/unload and Qt dialog lifecycle with OBS 31.0.0 | Passed in a test frontend |
 | Build and tests with installed OBS 32.2.2 on Linux | Passed |
 | Compile/API check against OBS 33.0.0 headers | Passed |
-| Windows x64 native build | Workflow and build script supplied; not run yet |
+| Windows x64 native build | Passed on Windows Server 2022 with MSVC 19.44, Qt 6.6.3; DLL dependencies and exports verified |
 | Windows 10 + OBS 32 live replay | Pending |
-| Ubuntu 24.04 baseline package build | Workflow supplied; not run yet |
+| Ubuntu 24.04 baseline package build | Passed with Qt 6.4.2; controller and module lifecycle tests passed |
 
 Local tests use Qt 6.11.2. Those local binaries are **not portable OBS 31 release packages**:
 older OBS installations may have older Qt. Release builds use OBS 31's own Windows Qt
@@ -62,8 +62,11 @@ Before packaging, the script loads the compiled module to verify native dependen
 required entry points and its OBS 31 API version. This does not start replay playback.
 Only the plugin, locale, documentation and build metadata are packaged. OBS/Qt runtime
 DLLs are not bundled or replaced. The installed OBS application provides those runtimes.
-The GitHub Actions Windows job runs the same script. No workflow has been dispatched
-from this workspace, and no Windows DLL has been produced here yet.
+The GitHub Actions Windows job runs the same script. The initial Windows and Linux packages were built successfully in
+[GitHub Actions run 1](https://github.com/Amaster15/InstantReplayXT-reMaster/actions/runs/40807018374).
+Download the platform artifact from that run and extract its inner ZIP or tar.gz package.
+Both artifact and package SHA256 checksums were verified after download.
+Live replay playback in Windows 10/OBS 32 remains to be tested.
 
 ## Build a Linux baseline package
 
