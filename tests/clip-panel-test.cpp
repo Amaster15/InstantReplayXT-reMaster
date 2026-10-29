@@ -12,6 +12,20 @@ int main(int argc, char **argv) {
     const auto junk = dir.filePath("match one/readme.txt");
     for (const auto &path : {one, two, junk}) { QFile f(path); assert(f.open(QIODevice::WriteOnly)); f.write("clip"); }
     ClipPanel panel;
+    ReplayPosition location{5000, 20000, "clip one"};
+    int seeks = 0; int64_t sought = -1;
+    panel.position = [&] { return location; };
+    panel.seek = [&](int64_t target, const std::string &clip) { ++seeks; sought = target; return clip == location.clip; };
+    panel.refreshTimeline();
+    assert(panel.timeline->isEnabled() && panel.timeline->value() == 2500 && seeks == 0);
+    assert(panel.timelineTime->text() == "00:00:05 / 00:00:20");
+    panel.timeline->setSliderDown(true); panel.timeline->setValue(7500);
+    location.position = 6000; panel.refreshTimeline(); assert(panel.timeline->value() == 7500);
+    panel.timeline->setSliderDown(false); assert(seeks == 1 && sought == 15000);
+    panel.timeline->setValue(1000); panel.scrub(); assert(seeks == 2 && sought == 2000);
+    panel.timeline->setValue(5000); location.clip = "clip two";
+    panel.refreshTimeline(); assert(!panel.scrubTimer->isActive() && seeks == 2);
+    location = {}; panel.refreshTimeline(); assert(!panel.timeline->isEnabled());
     assert(!panel.pauseButton->isEnabled());
     int playback = 1, toggles = 0;
     panel.playbackState = [&] { return playback; };

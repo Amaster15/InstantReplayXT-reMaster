@@ -13,8 +13,11 @@ void testAudio(obs_source_t *, const obs_source_audio *);
 #include <QThread>
 #include <cassert>
 #include <atomic>
+#include "seek-signatures.h"
 static std::atomic<unsigned> videoFrames{0}, audioFrames{0}, uniqueFrames{0};
 static uint64_t lastHash = 0;
+static std::mutex pictureMutex;
+static std::array<float, 180> picture{};
 static std::atomic<uint64_t> lastVideo{0}, lastAudio{0};
 void testVideo(obs_source_t *, const obs_source_frame *frame) {
     if (!frame) return;
@@ -25,6 +28,17 @@ void testVideo(obs_source_t *, const obs_source_frame *frame) {
         for (unsigned x = 0; x < frame->width * 4; ++x)
             hash = (hash ^ frame->data[0][y * frame->linesize[0] + x]) * 1099511628211ULL;
     if (hash != lastHash) { lastHash = hash; ++uniqueFrames; }
+    {
+        std::lock_guard<std::mutex> guard(pictureMutex);
+        for (unsigned by = 0; by < 6; ++by) for (unsigned bx = 0; bx < 10; ++bx)
+            for (unsigned c = 0; c < 3; ++c) {
+                unsigned sum = 0;
+                for (unsigned y = by * 15; y < (by + 1) * 15; ++y)
+                    for (unsigned x = bx * 16; x < (bx + 1) * 16; ++x)
+                        sum += frame->data[0][y * frame->linesize[0] + x * 4 + c];
+                picture[(by * 10 + bx) * 3 + c] = float(sum) / 240;
+            }
+    }
     assert(frame->timestamp >= lastVideo.exchange(frame->timestamp)); ++videoFrames;
 }
 void testAudio(obs_source_t *, const obs_source_audio *audio) {
@@ -100,6 +114,26 @@ int main(int argc, char **argv) {
         const auto initialAdvance = uniqueFrames.load() - initialFrames;
         assert(initialAdvance >= 1 && initialAdvance <= 4);
         assert(state(&s) == OBS_MEDIA_STATE_PLAYING);
+        // Scrubbing a freeze frame must update its picture in both directions
+        // while keeping the same paused input, including at 1% speed.
+        { std::lock_guard<std::mutex> guard(s.mutex); s.pause(true); }
+        for (int64_t target : {10000, 2000}) {
+            const auto oldFrames = uniqueFrames.load();
+            { std::lock_guard<std::mutex> guard(s.mutex); s.seek(target); }
+            const auto &reference = target == 10000 ? seekTenSeconds : seekTwoSeconds;
+            float error = 1000;
+            for (int i = 0; i < 150; ++i) {
+                { std::lock_guard<std::mutex> guard(pictureMutex);
+                  error = 0; for (size_t n = 0; n < picture.size(); ++n) error += std::abs(picture[n] - reference[n]);
+                  error /= picture.size(); }
+                if (error < 6 && uniqueFrames.load() > oldFrames) break;
+                QThread::msleep(20);
+            }
+            std::fprintf(stderr, "Paused seek target %lld, picture error %.2f\n", (long long)target, error);
+            assert(error < 6 && uniqueFrames.load() > oldFrames);
+            { std::lock_guard<std::mutex> guard(s.mutex); assert(s.position() == target); }
+            assert(state(&s) == OBS_MEDIA_STATE_PAUSED && s.opens == 1);
+        }
         // Release the input before overwriting the fixed replay file (Windows).
         obs_data_set_string(settings, "local_file", ""); s.update(settings);
         assert(QFile::rename(path, path + ".old"));

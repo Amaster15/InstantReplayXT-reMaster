@@ -199,6 +199,11 @@ int main(int argc, char **argv) {
         mediaState = OBS_MEDIA_STATE_PLAYING; mediaPosition = 0;
         QMetaObject::invokeMethod(&c.speedWait, "timeout", Qt::DirectConnection);
         assert(mediaPosition == 9000 && mediaState == OBS_MEDIA_STATE_PAUSED);
+        // Standard Media Source seeks without unpausing or reopening it.
+        auto standardPosition = c.position();
+        assert(standardPosition.duration == 20000);
+        assert(c.seek(2000, standardPosition.clip));
+        assert(mediaPosition == 2000 && mediaState == OBS_MEDIA_STATE_PAUSED);
         // Replacement also cancels an unfinished Standard Media Source speed seek.
         c.setSpeed(80); assert(c.speedSource);
         c.playLatest(false, chosen, true);
@@ -280,6 +285,15 @@ int main(int argc, char **argv) {
         assert(c.phase == ReplayController::Playing && mediaPosition == 2345);
         c.setSpeed(1); assert(c.playbackState() == 2);
         c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PLAYING && mediaPosition == 2345);
+        const auto timeline = c.position();
+        assert(timeline.position == 2345 && timeline.duration == 20000);
+        assert(c.seek(12000, timeline.clip) && mediaPosition == 12000);
+        c.togglePause();
+        assert(c.seek(3000, timeline.clip) && mediaPosition == 3000 && c.playbackState() == 2);
+        assert(c.seek(-100, timeline.clip) && mediaPosition == 0);
+        assert(c.seek(30000, timeline.clip) && mediaPosition == 19999);
+        assert(!c.seek(1000, "previous clip") && mediaPosition == 19999);
+        c.togglePause(); mediaPosition = 2345;
         // Freeze must also suspend timed replay's automatic scene return.
         c.setSpeed(100); c.libraryPlayback = false; c.timer.start(5000);
         // Qt's coarse timer rounds its deadline; compare with its actual
@@ -289,9 +303,16 @@ int main(int argc, char **argv) {
         const int frozen = c.frozenRemaining;
         assert(!c.timer.isActive() && frozen > 0 && frozen <= beforeFreeze && frozen >= beforeFreeze - 100);
         c.setSpeed(50); assert(c.frozenRemaining == frozen * 2 && !c.timer.isActive());
+        const auto frozenBeforeSeek = c.frozenRemaining;
+        assert(c.seek(3345, c.position().clip));
+        assert(c.frozenRemaining == frozenBeforeSeek - 2000 && !c.timer.isActive());
+        mediaPosition = 2345; // Simulate an asynchronous player's stale time report.
+        assert(c.seek(4345, c.position().clip));
+        assert(c.frozenRemaining == frozenBeforeSeek - 4000 && !c.timer.isActive());
         c.togglePause(); assert(c.timer.isActive() && c.frozenRemaining == -1);
         c.phase = ReplayController::Saving;
         assert(c.playbackState() == 0); c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PLAYING);
+        assert(!c.seek(1000, timeline.clip));
 
         c.reset(false);
     }
