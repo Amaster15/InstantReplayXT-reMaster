@@ -24,6 +24,7 @@ public:
     QTableWidget *clips;
     QCheckBox *switchScene;
     QSlider *speed;
+    QPushButton *pauseButton;
     QComboBox *playbackMode;
     bool usesVlc() const { return playbackMode->currentData().toInt() == 1; }
     void setUseVlc(bool vlc) { playbackMode->setCurrentIndex(playbackMode->findData(vlc ? 1 : 0)); }
@@ -34,6 +35,14 @@ public:
     std::function<QString()> latest;
     std::function<void(const QString &, bool)> play;
     std::function<void(int)> changeSpeed;
+    std::function<void()> togglePause;
+    std::function<int()> playbackState; // 0 unavailable, 1 playing, 2 paused
+    void refreshPause() {
+        const int state = playbackState ? playbackState() : 0;
+        pauseButton->setEnabled(state != 0);
+        pauseButton->setText(state == 2 ? "Resume" : "Pause");
+        pauseButton->setAccessibleName(state == 2 ? "Resume replay" : "Pause replay for freeze frame");
+    }
     QIcon playbackIcon(bool showScreen) const {
         QIcon icon;
         for (const auto mode : {QIcon::Normal, QIcon::Disabled}) {
@@ -92,11 +101,18 @@ public:
             presets->addWidget(button);
             connect(button, &QPushButton::clicked, this, [this, percent] { speed->setValue(percent); });
         }
+        pauseButton = new QPushButton("Pause", this);
+        pauseButton->setToolTip("Freeze the current replay frame; click Resume to continue from the same position.");
+        presets->addWidget(pauseButton);
+        connect(pauseButton, &QPushButton::clicked, this, [this] { if (togglePause) togglePause(); refreshPause(); });
+        auto *pausePoll = new QTimer(this); pausePoll->setInterval(250);
+        connect(pausePoll, &QTimer::timeout, this, [this] { if (isVisible()) refreshPause(); });
+        pausePoll->start(); refreshPause();
         modeHint = new QLabel(this); modeHint->setWordWrap(true); layout->addWidget(modeHint);
         auto updateHint = [this] {
             modeHint->setText(!usesVlc()
                 ? "Standard Media Source reloads the clip when speed changes. Try VLC live slow motion for speed changes without reloading."
-                : "VLC changes speed during playback without reloading the clip. Requires VLC 3.x (64-bit on Windows). 1% = one hundredth speed; 25% = quarter speed; 100% = normal; 200% = double speed.");
+                : "VLC changes speed without reloading. At 1–3%, frames advance slowly and audio is silent. Requires VLC 3.x (64-bit on Windows). 100% = normal; 200% = double speed.");
         };
         connect(playbackMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [updateHint](int) { updateHint(); }); updateHint();
         status = new QLabel(this); status->setWordWrap(true); status->setTextFormat(Qt::PlainText); layout->addWidget(status);
@@ -123,6 +139,7 @@ public:
         if (!QFileInfo::exists(path)) { status->setText("This clip has moved or been deleted. Refresh the list."); return; }
         if (changeSpeed) changeSpeed(speed->value());
         if (play) play(path, changeScene);
+        refreshPause();
     }
     void refreshClips() {
         struct Entry { QFileInfo file; QString label, path; };

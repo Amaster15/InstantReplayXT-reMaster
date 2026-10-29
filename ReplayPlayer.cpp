@@ -7,6 +7,9 @@
 #include <QDir>
 #include <algorithm>
 #include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <chrono>
 #include <atomic>
 #include <string>
 #include <cstring>
@@ -53,6 +56,7 @@ struct Vlc {
     API(int, libvlc_media_player_play, libvlc_media_player_t *);
     API(void, libvlc_media_player_stop, libvlc_media_player_t *);
     API(void, libvlc_media_player_set_pause, libvlc_media_player_t *, int);
+    API(void, libvlc_media_player_next_frame, libvlc_media_player_t *);
     API(int, libvlc_media_player_set_rate, libvlc_media_player_t *, float);
     API(float, libvlc_media_player_get_rate, libvlc_media_player_t *);
     API(int64_t, libvlc_media_player_get_time, libvlc_media_player_t *);
@@ -96,6 +100,7 @@ struct Vlc {
         LOAD(libvlc_media_player_get_media); LOAD(libvlc_media_tracks_get); LOAD(libvlc_media_tracks_release);
         LOAD(libvlc_media_new_path); LOAD(libvlc_media_release); LOAD(libvlc_media_player_new);
         LOAD(libvlc_media_player_release); LOAD(libvlc_media_player_set_media); LOAD(libvlc_media_player_play);
+        LOAD(libvlc_media_player_next_frame);
         LOAD(libvlc_media_player_stop); LOAD(libvlc_media_player_set_pause); LOAD(libvlc_media_player_set_rate);
         LOAD(libvlc_media_player_get_rate); LOAD(libvlc_media_player_get_time); LOAD(libvlc_media_player_set_time);
         LOAD(libvlc_media_player_get_length); LOAD(libvlc_media_player_get_state);
@@ -121,6 +126,36 @@ struct Player {
     std::mutex mutex;
     std::string path;
     int speed = 100;
+    std::condition_variable stepWake;
+    std::thread stepThread;
+    bool shutdown = false, stepping = false, stepPaused = false;
+    std::atomic<double> frameRate{30.0};
+    std::atomic<bool> silentSteps{false};
+    std::chrono::steady_clock::time_point nextStep;
+    void stopSteps() { stepping = false; silentSteps = false; stepWake.notify_all(); }
+    void pause(bool paused) {
+        stepPaused = paused;
+        vlc.libvlc_media_player_set_pause(player, stepping || paused);
+        nextStep = std::chrono::steady_clock::now(); stepWake.notify_all();
+    }
+    void stepLoop() {
+        std::unique_lock<std::mutex> guard(mutex);
+        while (!shutdown) {
+            if (!stepping || stepPaused) { stepWake.wait(guard); continue; }
+            if (std::chrono::steady_clock::now() < nextStep) {
+                stepWake.wait_until(guard, nextStep); continue;
+            }
+            const int current = vlc.libvlc_media_player_get_state(player);
+            if (current == 3 || current == 4) {
+                vlc.libvlc_media_player_next_frame(player);
+                const double seconds = 100.0 / (frameRate.load() * speed);
+                nextStep = std::chrono::steady_clock::now() +
+                    std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(seconds));
+            } else {
+                stepWake.wait_for(guard, std::chrono::milliseconds(20));
+            }
+        }
+    }
     std::atomic<int> previousState{0};
     std::atomic<bool> failed{false};
     uint64_t opens = 0;
@@ -134,8 +169,11 @@ struct Player {
         vlc.libvlc_video_set_format_callbacks(player, format, nullptr);
         vlc.libvlc_audio_set_callbacks(player, audio, nullptr, nullptr, nullptr, nullptr, this);
         vlc.libvlc_audio_set_format(player, "FL32", 48000, 2);
+        stepThread = std::thread([this] { stepLoop(); });
     }
     ~Player() {
+        { std::lock_guard<std::mutex> guard(mutex); shutdown = true; stepWake.notify_all(); }
+        if (stepThread.joinable()) stepThread.join();
         if (player) { vlc.libvlc_media_player_stop(player); vlc.libvlc_media_player_release(player); }
         obs_source_frame_free(&frame);
     }
@@ -150,6 +188,8 @@ struct Player {
             for (unsigned i = 0; i < count; ++i) {
                 if (tracks[i]->type != 1 || !tracks[i]->video) continue;
                 const auto &video = *tracks[i]->video;
+                if (video.fpsNumerator && video.fpsDenominator)
+                    s->frameRate = double(video.fpsNumerator) / video.fpsDenominator;
                 uint64_t w = video.width, h = video.height;
                 if (video.sarNumerator && video.sarDenominator) w = w * video.sarNumerator / video.sarDenominator;
                 if (video.orientation >= 4 && video.orientation <= 7) std::swap(w, h);
@@ -177,6 +217,7 @@ struct Player {
     }
     static void audio(void *opaque, const void *samples, unsigned count, int64_t pts) {
         auto *s = static_cast<Player *>(opaque);
+        if (s->silentSteps) return;
         obs_source_audio audio{};
         audio.data[0] = (const uint8_t *)samples; audio.frames = count;
         audio.speakers = SPEAKERS_STEREO; audio.format = AUDIO_FORMAT_FLOAT; audio.samples_per_sec = 48000;
@@ -185,17 +226,36 @@ struct Player {
     }
     bool rate(int percent) {
         const int next = std::clamp(percent, 1, 200);
+        // VLC 3 clamps live rates below 1/32. Pace its frame-step API for
+        // 1-3% instead of trusting set_rate/get_rate or reopening the input.
+        const bool wasStepping = stepping;
+        const int current = vlc.libvlc_media_player_get_state(player);
+        if (next < 4) {
+            if (wasStepping && next == speed) return true;
+            if (!wasStepping) stepPaused = current == 4;
+            speed = next; stepping = true; silentSteps = true;
+            vlc.libvlc_media_player_set_pause(player, 1);
+            nextStep = std::chrono::steady_clock::now(); stepWake.notify_all();
+            return true;
+        }
         if (vlc.libvlc_media_player_set_rate(player, float(next) / 100.f) != 0) return false;
-        speed = next; return true;
+        speed = next; stopSteps();
+        if (wasStepping && !stepPaused) vlc.libvlc_media_player_set_pause(player, 0);
+        return true;
     }
     void start() {
         if (path.empty() || failed) return;
-        vlc.libvlc_media_player_set_rate(player, float(speed) / 100.f);
+        const int requested = speed;
+        vlc.libvlc_media_player_set_rate(player, float(speed < 4 ? 100 : speed) / 100.f);
         if (vlc.libvlc_media_player_play(player) != 0) {
             failed = true;
             const auto *error = vlc.libvlc_errmsg();
             blog(LOG_WARNING, "[InstantReplayXT] VLC playback could not start: %s", error ? error : "unknown error");
+            return;
         }
+        stepping = false; stepPaused = false;
+        rate(requested);
+        stepPaused = false; nextStep = std::chrono::steady_clock::now(); stepWake.notify_all();
     }
     void update(obs_data_t *settings) {
         std::lock_guard<std::mutex> guard(mutex);
@@ -204,6 +264,7 @@ struct Player {
         if (path == next && !failed) { rate(percent); return; }
         // Only a file change replaces the input. Live rate changes never stop,
         // seek, rebuild the decoder, or alter scene visibility.
+        stopSteps();
         vlc.libvlc_media_player_stop(player);
         vlc.libvlc_media_player_set_media(player, nullptr);
         path = next; previousState = 0; failed = false;
@@ -233,7 +294,7 @@ static void liveRate(void *data, calldata_t *call) {
 static void diagnostics(void *data, calldata_t *call) {
     auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex);
     calldata_set_int(call, "opens", int64_t(s->opens));
-    calldata_set_float(call, "rate", vlc.libvlc_media_player_get_rate(s->player));
+    calldata_set_float(call, "rate", s->stepping ? float(s->speed) / 100.f : vlc.libvlc_media_player_get_rate(s->player));
 }
 static void *create(obs_data_t *settings, obs_source_t *source) {
     if (!vlc.load()) return nullptr;
@@ -251,7 +312,7 @@ static enum obs_media_state state(void *data) {
     case 1: return OBS_MEDIA_STATE_OPENING;
     case 2: return OBS_MEDIA_STATE_BUFFERING;
     case 3: return OBS_MEDIA_STATE_PLAYING;
-    case 4: return OBS_MEDIA_STATE_PAUSED;
+    case 4: return s->stepping && !s->stepPaused ? OBS_MEDIA_STATE_PLAYING : OBS_MEDIA_STATE_PAUSED;
     case 5: return OBS_MEDIA_STATE_STOPPED;
     case 6: return OBS_MEDIA_STATE_ENDED;
     case 7: return OBS_MEDIA_STATE_ERROR;
@@ -282,17 +343,17 @@ void replay_player_register() {
     info.activate = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); s->start(); };
     info.deactivate = [](void *data) {
         auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex);
-        vlc.libvlc_media_player_stop(s->player); obs_source_output_video(s->source, nullptr);
+        s->stopSteps(); vlc.libvlc_media_player_stop(s->player); obs_source_output_video(s->source, nullptr);
     };
     info.media_restart = [](void *data) {
         auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex);
-        vlc.libvlc_media_player_stop(s->player); s->start();
+        s->stopSteps(); vlc.libvlc_media_player_stop(s->player); s->start();
     };
     info.media_play_pause = [](void *data, bool pause) {
         auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex);
-        vlc.libvlc_media_player_set_pause(s->player, pause);
+        s->pause(pause);
     };
-    info.media_stop = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); vlc.libvlc_media_player_stop(s->player); };
+    info.media_stop = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); s->stopSteps(); vlc.libvlc_media_player_stop(s->player); };
     info.media_get_state = state;
     info.media_get_time = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); return vlc.libvlc_media_player_get_time(s->player); };
     info.media_get_duration = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); return vlc.libvlc_media_player_get_length(s->player); };

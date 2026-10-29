@@ -25,6 +25,7 @@ public:
     QTimer timer, playbackPoll, speedWait;
     int speedPercent = 100, appliedSpeed = 100, speedTicks = 0, playbackTicks = 0;
     int64_t resumePosition = 0;
+    int frozenRemaining = -1;
     bool resumePaused = false, speedUpdated = false, libraryPlayback = false;
     std::string selectedReplay;
     obs_source_t *speedSource = nullptr;
@@ -80,6 +81,7 @@ public:
         muted.clear();
     }
     void reset(bool returnToScene) {
+        frozenRemaining = -1;
         timer.stop();
         playbackPoll.stop();
         finishSpeed();
@@ -109,6 +111,37 @@ public:
             obs_source_release(speedSource); speedSource = nullptr;
         }
     }
+    int playbackState() {
+        if (phase != Idle && phase != Playing) return 0;
+        if (speedSource) return resumePaused ? 2 : 1;
+        auto *source = media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
+        if (!source) return 0;
+        const auto state = supportedReplaySource(source) ? obs_source_media_get_state(source) : OBS_MEDIA_STATE_NONE;
+        obs_source_release(source);
+        return state == OBS_MEDIA_STATE_PAUSED ? 2 : state == OBS_MEDIA_STATE_PLAYING ? 1 : 0;
+    }
+    void togglePause() {
+        const int state = playbackState();
+        if (!state) return;
+        auto *source = speedSource ? obs_source_get_ref(speedSource) : media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
+        if (!source) return;
+        const bool paused = state == 1;
+        if (speedSource) resumePaused = paused;
+        obs_source_media_play_pause(source, paused);
+        obs_source_release(source);
+        if (paused && phase == Playing && timer.isActive()) {
+            frozenRemaining = std::max(1, timer.remainingTime()); timer.stop();
+        } else if (!paused && frozenRemaining >= 0) {
+            timer.start(frozenRemaining); frozenRemaining = -1;
+        }
+    }
+    void rescalePlaybackTimer(int oldSpeed) {
+        if (libraryPlayback || phase != Playing) return;
+        if (frozenRemaining >= 0)
+            frozenRemaining = std::max(1, frozenRemaining * oldSpeed / speedPercent);
+        else if (timer.isActive())
+            timer.start(std::max(1, timer.remainingTime() * oldSpeed / speedPercent));
+    }
     void setSpeed(int percent) {
         speedPercent = std::clamp(percent, 1, 200);
         if (speedSource || phase == Saving || phase == ReleasingMedia || phase == Processing) return;
@@ -119,8 +152,7 @@ public:
             const bool success = proc_handler_call(obs_source_get_proc_handler(source), "irxt_set_rate", &call) && calldata_bool(&call, "success");
             calldata_free(&call);
             if (success) {
-                if (!libraryPlayback && phase == Playing && timer.isActive())
-                    timer.start(std::max(1, timer.remainingTime() * appliedSpeed / speedPercent));
+                rescalePlaybackTimer(appliedSpeed);
                 appliedSpeed = speedPercent;
                 // Persist the setting without triggering a source update/reopen.
                 auto *settings = obs_source_get_settings(source);
@@ -145,8 +177,7 @@ public:
         }
         appliedSpeed = speedPercent;
         // Keep the existing replay's wall-clock budget proportional to playback speed.
-        if (!libraryPlayback && phase == Playing && timer.isActive())
-            timer.start(std::max(1, timer.remainingTime() * (oldSpeed > 0 ? oldSpeed : 100) / speedPercent));
+        rescalePlaybackTimer(oldSpeed > 0 ? oldSpeed : 100);
         auto *update = obs_data_create();
         obs_data_set_int(update, "speed_percent", speedPercent);
         obs_source_update(source, update); obs_data_release(update);
@@ -451,6 +482,8 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
 void replay_play_clip(const std::string &path, bool switchScene) {
     if (controller) controller->playLatest(!switchScene, path, true);
 }
+void replay_toggle_pause() { if (controller) controller->togglePause(); }
+int replay_playback_state() { return controller ? controller->playbackState() : 0; }
 void replay_set_speed(int percent) {
     if (controller) controller->setSpeed(percent);
 }
