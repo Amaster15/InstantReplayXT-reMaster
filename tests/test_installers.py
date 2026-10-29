@@ -12,7 +12,7 @@ ARTIFACTS = ROOT / 'artifacts'
 
 
 def check_linux():
-    installer = ARTIFACTS / 'InstantReplayXT-2.0.3-obs31-linux-x64-install.run'
+    installer = ARTIFACTS / 'InstantReplayXT-2.0.4-obs31-linux-x64-install.run'
     with tempfile.TemporaryDirectory(prefix='irxt-install-test-') as temp:
         config = Path(temp) / 'config with spaces'
         env = dict(os.environ, XDG_CONFIG_HOME=str(config))
@@ -48,6 +48,19 @@ def check_linux():
         assert backups[0].exists()
         sentinel.unlink()
         target.rmdir()
+        custom = Path(temp) / 'custom plugins with spaces' / 'InstantReplay'
+        run('--install-dir', str(custom), '--dry-run')
+        assert not custom.exists()
+        run('--install-dir', str(custom))
+        custom_binary = custom / 'bin/64bit/InstantReplay.so'
+        assert hashlib.sha256(custom_binary.read_bytes()).hexdigest() == installed_digest
+        run('--install-dir', str(custom))
+        assert hashlib.sha256(custom_binary.read_bytes()).hexdigest() == installed_digest
+        run('--install-dir', str(custom), '--uninstall')
+        assert not custom_binary.exists()
+        run('--install-dir', str(Path(temp)), success=False)
+        run('--install-dir', 'relative/InstantReplay', success=False)
+
         external = Path(temp) / 'external'
         external.mkdir()
         target.symlink_to(external, target_is_directory=True)
@@ -60,14 +73,14 @@ def check_windows():
     # This writes ProgramData only on the disposable GitHub Actions test runner.
     if os.environ.get('GITHUB_ACTIONS') != 'true':
         raise RuntimeError('Windows installation smoke test is restricted to a disposable CI runner')
-    setup = ARTIFACTS / 'InstantReplayXT-2.0.3-obs31-windows-x64-setup.exe'
+    setup = ARTIFACTS / 'InstantReplayXT-2.0.4-obs31-windows-x64-setup.exe'
     target = Path(os.environ['ProgramData']) / 'obs-studio/plugins/InstantReplay'
     if target.exists():
         raise RuntimeError('Test destination already exists; refusing to overwrite it')
     quiet = ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART']
     subprocess.run([str(setup), *quiet], check=True)
     dll = target / 'bin/64bit/InstantReplay.dll'
-    with zipfile.ZipFile(ARTIFACTS / 'InstantReplayXT-2.0.3-obs31-windows-x64.zip') as z:
+    with zipfile.ZipFile(ARTIFACTS / 'InstantReplayXT-2.0.4-obs31-windows-x64.zip') as z:
         assert dll.read_bytes() == z.read('InstantReplay/bin/64bit/InstantReplay.dll')
     assert (target / 'data/locale/en-US.ini').is_file()
     subprocess.run([str(setup), *quiet], check=True)
@@ -80,6 +93,16 @@ def check_windows():
     subprocess.run([str(uninstaller), *quiet], check=True)
     assert not dll.exists()
     assert sentinel.exists()
+    with tempfile.TemporaryDirectory(prefix='irxt-custom-') as temp:
+        custom = Path(temp) / 'custom plugins with spaces' / 'InstantReplay'
+        subprocess.run([str(setup), *quiet, '/DIR=' + str(custom)], check=True)
+        assert (custom / 'bin/64bit/InstantReplay.dll').is_file()
+        # Upgrade without /DIR must reuse the custom destination.
+        subprocess.run([str(setup), *quiet], check=True)
+        assert (custom / 'data/locale/en-US.ini').is_file()
+        assert not dll.exists()
+        subprocess.run([str(custom / 'uninstall/unins000.exe'), *quiet], check=True)
+        assert not (custom / 'bin/64bit/InstantReplay.dll').exists()
     print('Windows: standard ProgramData path, installed DLL hash, upgrade backup and uninstall preservation passed.')
 
 
