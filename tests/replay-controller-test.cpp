@@ -231,6 +231,26 @@ int main(int argc, char **argv) {
         assert(!result.warning.empty() && fs::exists(fs::u8path(result.path)));
         assert(fs::exists(fs::u8path(replayPath)));
     }
+    // VLC's public rate procedure must not invoke a source update or seek.
+    static int liveRate = 100, liveUpdates = 0;
+    sourceInfo.id = "irxt_vlc_player";
+    sourceInfo.create = [](obs_data_t *, obs_source_t *source) -> void * {
+        proc_handler_add(obs_source_get_proc_handler(source), "void irxt_set_rate(in int percent, out bool success)",
+            [](void *, calldata_t *call) { liveRate = int(calldata_int(call, "percent")); calldata_set_bool(call, "success", true); }, nullptr);
+        return new int(0);
+    };
+    sourceInfo.update = [](void *, obs_data_t *) { ++liveUpdates; };
+    obs_register_source(&sourceInfo);
+    auto *vlcSource = obs_source_create("irxt_vlc_player", "Live replay", nullptr, nullptr);
+    {
+        ReplayController c; c.media = obs_source_get_ref(vlcSource); c.phase = ReplayController::Playing;
+        c.libraryPlayback = true; mediaPosition = 2345;
+        const auto before = liveUpdates;
+        c.setSpeed(50); assert(liveRate == 50 && liveUpdates == before && mediaPosition == 2345 && !c.speedSource);
+        c.setSpeed(175); assert(liveRate == 175 && liveUpdates == before && mediaPosition == 2345);
+        c.reset(false);
+    }
+    obs_source_release(vlcSource);
     obs_set_output_source(3, nullptr);
     obs_source_release(audio);
     obs_source_release(mediaSource);

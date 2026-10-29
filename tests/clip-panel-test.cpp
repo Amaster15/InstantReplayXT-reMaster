@@ -28,6 +28,11 @@ int main(int argc, char **argv) {
     auto *playHere = qobject_cast<QPushButton *>(panel.clips->cellWidget(row, 3));
     auto *playSwitch = qobject_cast<QPushButton *>(panel.clips->cellWidget(row, 4));
     assert(playHere && playSwitch);
+    assert(playHere->text().isEmpty() && playSwitch->text().isEmpty());
+    assert(!playHere->icon().isNull() && !playSwitch->icon().isNull());
+    assert(!playHere->toolTip().isEmpty() && !playSwitch->accessibleName().isEmpty());
+    assert(panel.playbackMode->currentIndex() == 0 && panel.modeHint->text().contains("reloads"));
+    panel.playbackMode->setCurrentIndex(1); assert(panel.modeHint->text().contains("without reloading"));
     panel.clips->selectRow(1 - row);
     panel.switchScene->setChecked(true); playHere->click();
     assert(played == two && !switched);
