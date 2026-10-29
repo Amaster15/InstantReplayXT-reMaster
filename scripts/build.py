@@ -67,7 +67,7 @@ def main():
         prefixes.extend(sorted((source / ".deps").glob("obs-deps-*-x64")))
     run(cmake, "-S", ROOT, "-B", build, *generator, "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_PREFIX_PATH=" + ";".join(str(p) for p in prefixes),
-        "-DIRXT_REQUIRE_BASELINE=ON", "-DIRXT_PLUGIN_LAYOUT=ON",
+        "-DIRXT_REQUIRE_BASELINE=ON", "-DIRXT_PLUGIN_LAYOUT=ON", "-DIRXT_BUILD_TRANSPORT_TESTS=ON",
         "-DIRXT_BUILD_TESTS=" + ("ON" if args.test else "OFF"))
     run(cmake, "--build", build, "--config", "Release", "--parallel", args.jobs)
     # Test native library loading before publishing an archive. This resolves all
@@ -79,6 +79,12 @@ def main():
         for directory in sorted(dll_dirs):
             verify_args.extend(["--dll-directory", str(directory)])
     run(sys.executable, ROOT / "scripts" / "verify_module.py", module, *verify_args)
+    if system == "Windows":
+        # Run with native Windows curl and no Qt TLS plugin search paths.
+        test_env = os.environ.copy()
+        test_env["PATH"] = os.pathsep.join(str(p) for p in sorted(dll_dirs)) + os.pathsep + test_env.get("PATH", "")
+        subprocess.run([str(build / "Release" / "update-transport-test.exe"), "--live"],
+                       check=True, env=test_env)
     if args.test:
         ctest = Path(cmake).with_name("ctest.exe" if system == "Windows" else "ctest")
         run(ctest, "--test-dir", build, "--output-on-failure")
@@ -92,7 +98,7 @@ def main():
     (stage / "build-info.json").write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
     artifacts = ROOT / "artifacts"
     artifacts.mkdir(exist_ok=True)
-    name = "InstantReplayXT-2.0.7-obs31-" + slug
+    name = "InstantReplayXT-2.0.8-obs31-" + slug
     if system == "Windows":
         archive = artifacts / (name + ".zip")
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
