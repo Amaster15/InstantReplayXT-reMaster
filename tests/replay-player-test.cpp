@@ -53,6 +53,10 @@ int main(int argc, char **argv) {
         assert(s.rate(150)); QThread::msleep(1600);
         const auto fast = vlc.libvlc_media_player_get_time(s.player);
         assert(fast - slow > 1500 && s.opens == 1);
+        // Extreme slow motion must keep the same input open and accept 1%.
+        assert(s.rate(1)); QThread::msleep(500);
+        assert(std::abs(vlc.libvlc_media_player_get_rate(s.player) - 0.01f) < 0.001f);
+        assert(vlc.libvlc_media_player_get_state(s.player) == 3 && s.opens == 1);
         // Updating only speed in source properties also keeps the input open.
         obs_data_set_int(settings, "speed_percent", 75); s.update(settings);
         assert(s.opens == 1 && vlc.libvlc_media_player_get_time(s.player) >= fast);

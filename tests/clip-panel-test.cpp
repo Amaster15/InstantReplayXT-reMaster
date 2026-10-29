@@ -12,6 +12,14 @@ int main(int argc, char **argv) {
     const auto junk = dir.filePath("match one/readme.txt");
     for (const auto &path : {one, two, junk}) { QFile f(path); assert(f.open(QIODevice::WriteOnly)); f.write("clip"); }
     ClipPanel panel;
+    assert(panel.speed->minimum() == 1 && panel.speed->maximum() == 200);
+    for (int percent : {1, 25, 50, 75, 100}) {
+        bool found = false;
+        for (auto *button : panel.findChildren<QPushButton *>()) if (button->text() == QString::number(percent) + "%") {
+            button->click(); assert(panel.speed->value() == percent); found = true;
+        }
+        assert(found);
+    }
     panel.folders = [&] { return QList<QPair<QString, QString>>{{"Match 1", dir.filePath("match one")}, {"Disabled match", dir.filePath("match two")}, {"Duplicate", dir.filePath("match one")}, {"Blank", ""}}; };
     panel.latest = [&] { return one; };
     panel.refreshClips(); assert(panel.clips->rowCount() == 2);
