@@ -7,7 +7,7 @@
 [Setup]
 AppId={{6D1D9A87-2C13-4BE8-A2B7-F0E2281C8935}
 AppName=Instant Replay XT for OBS
-AppVersion=2.0.2
+AppVersion=2.0.3
 AppPublisher=InstantReplayXT-reMaster contributors
 AppPublisherURL=https://github.com/Amaster15/InstantReplayXT-reMaster
 DefaultDirName={commonappdata}\obs-studio\plugins\InstantReplay
@@ -19,7 +19,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputDir}
-OutputBaseFilename=InstantReplayXT-2.0.2-obs31-windows-x64-setup
+OutputBaseFilename=InstantReplayXT-2.0.3-obs31-windows-x64-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
