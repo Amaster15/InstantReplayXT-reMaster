@@ -88,6 +88,16 @@ replayCallout::replayCallout(QWidget *parent)
 	ui(new Ui_replayCallout)
 {
 	ui->setupUi(this);
+    if (obs_current_module()) {
+        ui->updates->modulePath = QString::fromUtf8(obs_get_module_binary_path(obs_current_module()));
+#ifdef Q_OS_WIN
+        char *helper = obs_module_file("updater/install-after-obs.ps1");
+#else
+        char *helper = obs_module_file("updater/install-after-obs.py");
+#endif
+        if (helper) ui->updates->helperPath = QString::fromUtf8(helper);
+        bfree(helper);
+    }
     ui->library->folders = [this] {
         QList<QPair<QString, QString>> result;
         result.append({"Backup folder", ui->filePathBackupEdit->text().trimmed()});

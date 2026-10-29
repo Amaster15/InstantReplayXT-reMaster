@@ -1,6 +1,7 @@
 #pragma once
 #include "MatchPanel.h"
 #include "ClipPanel.h"
+#include "UpdatePanel.h"
 #include <QTabWidget>
 #include <QScrollArea>
 #include <QtCore/QVariant>
@@ -25,6 +26,7 @@ public:
 	QGridLayout *replayLayout;
     MatchPanel *matches;
     ClipPanel *library;
+    UpdatePanel *updates;
 
 	QLabel *enableLabel;
 	QCheckBox *enableCheck;
@@ -75,6 +77,8 @@ public:
         tabs->addTab(matches, "Matches / BRB playlist");
         library = new ClipPanel;
         tabs->addTab(library, "Clip library");
+        updates = new UpdatePanel;
+        tabs->addTab(updates, "Updates");
         replayCallout->resize(800, 720);
         replayLayout = new QGridLayout(general);
 		replayLayout->setObjectName(QStringLiteral("replayLayout"));
@@ -211,7 +215,7 @@ public:
 
 	void retranslateUi(QDialog *replayCallout)
 	{
-		replayCallout->setWindowTitle("Instant Replay XT 2.0.5");
+		replayCallout->setWindowTitle("Instant Replay XT 2.0.6");
 		enableLabel->setText(QApplication::translate("replayCallout", "Enable", Q_NULLPTR));
 		waitLabel->setText(QApplication::translate("replayCallout", "WritePause", Q_NULLPTR));
 		pauseLabel->setText(QApplication::translate("replayCallout", "TransitionPause", Q_NULLPTR));
