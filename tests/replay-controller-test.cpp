@@ -5,7 +5,8 @@
 #include <fstream>
 static obs_source_t *currentScene;
 static int saveRequests;
-static bool enabled = true, active = true, validScene = true;
+static bool enabled = true, active = true, validScene = true, autoSwitch = true;
+bool get_auto_switch() { return autoSwitch; }
 static std::string status;
 static std::string outputDir;
 std::string get_replay_path() { return outputDir; }
@@ -104,13 +105,49 @@ int main(int argc, char **argv) {
         const int before = saveRequests;
         c.start(); assert(saveRequests == before + 1); finishSave(c);
         assert(c.phase == ReplayController::Idle);
-        assert(status.find("Playback skipped") != std::string::npos);
+        assert(status.find("Saved") != std::string::npos);
         assert(fs::exists(backupPath / "InstantReplay_2.mkv"));
         validScene = true;
         active = false; c.start(); assert(saveRequests == before + 1);
         assert(status.find("stopped") != std::string::npos);
         active = true;
         assert(fs::exists(testDir / "InstantReplay.mkv"));
+        // Save-only mode arms the media source and never switches away from live.
+        autoSwitch = false;
+        currentScene = obs_scene_get_source(live);
+        c.start(); finishSave(c);
+        assert(c.phase == ReplayController::Idle);
+        assert(currentScene == obs_scene_get_source(live));
+        auto *armed = obs_source_get_settings(mediaSource);
+        assert(std::string(obs_data_get_string(armed, "local_file")) == c.lastReplay);
+        obs_data_release(armed);
+        const int savedCount = saveRequests;
+        active = false; // Playing an existing clip does not need the buffer running.
+        controller = &c;
+        instant_replay_play_hotkey(nullptr, OBS_INVALID_HOTKEY_ID, nullptr, false);
+        QCoreApplication::processEvents(); assert(c.phase == ReplayController::Idle);
+        instant_replay_play_hotkey(nullptr, OBS_INVALID_HOTKEY_ID, nullptr, true);
+        QCoreApplication::processEvents();
+        assert(c.phase == ReplayController::TransitionIn && saveRequests == savedCount);
+        assert(currentScene == obs_scene_get_source(replayScene));
+        c.advance(); c.advance(); c.advance();
+        assert(currentScene == obs_scene_get_source(live));
+        // Manually entering the scene restarts playback but never forces a scene return.
+        currentScene = obs_scene_get_source(replayScene);
+        frontendEvent(OBS_FRONTEND_EVENT_SCENE_CHANGED, nullptr);
+        assert(c.phase == ReplayController::TransitionIn && !c.original);
+        c.advance(); c.advance();
+        assert(c.phase == ReplayController::Idle && currentScene == obs_scene_get_source(replayScene));
+        assert(saveRequests == savedCount);
+        // After restart, use the clip saved in Media Source settings.
+        c.lastReplay.clear();
+        currentScene = obs_scene_get_source(live);
+        c.playLatest(); assert(c.phase == ReplayController::TransitionIn);
+        currentScene = obs_scene_get_source(live);
+        frontendEvent(OBS_FRONTEND_EVENT_SCENE_CHANGED, nullptr);
+        assert(c.phase == ReplayController::Idle);
+        controller = nullptr;
+        active = true;
         // Continue after the highest existing number, even with gaps.
         std::ofstream(backupPath / "InstantReplay_9.mkv") << "older backup";
         std::ofstream(fs::u8path(replayPath)) << "new replay";
