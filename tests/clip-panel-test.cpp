@@ -24,6 +24,26 @@ int main(int argc, char **argv) {
     assert(played == two && !switched && speed == 50);
     panel.refreshClips(); assert(panel.selectedPath() == two);
     panel.switchScene->setChecked(true); panel.playSelected(); assert(switched);
+    // Row actions act on their own clip and override the global checkbox.
+    auto *playHere = qobject_cast<QPushButton *>(panel.clips->cellWidget(row, 3));
+    auto *playSwitch = qobject_cast<QPushButton *>(panel.clips->cellWidget(row, 4));
+    assert(playHere && playSwitch);
+    panel.clips->selectRow(1 - row);
+    panel.switchScene->setChecked(true); playHere->click();
+    assert(played == two && !switched);
+    panel.switchScene->setChecked(false); playSwitch->click();
+    assert(played == two && switched);
+    panel.refreshClips(); assert(panel.clips->cellWidget(row, 3) == playHere);
+    panel.clips->selectRow(row);
     assert(QFile::remove(two)); played.clear(); panel.playSelected(); assert(played.isEmpty());
     panel.refreshClips(); assert(panel.clips->rowCount() == 1 && panel.selectedPath().isEmpty());
+    // Nested backups in a configured folder are found, with duplicate roots deduplicated.
+    assert(dir.mkpath("match two/round 2"));
+    QFile nested(dir.filePath("match two/round 2/InstantReplay_3.mkv"));
+    assert(nested.open(QIODevice::WriteOnly)); nested.write("nested clip"); nested.close();
+    panel.refreshClips(); assert(panel.clips->rowCount() == 2);
+    bool found = false;
+    for (int index = 0; index < panel.clips->rowCount(); ++index)
+        if (panel.clips->item(index, 0)->data(Qt::UserRole).toString() == QFileInfo(nested).canonicalFilePath()) found = true;
+    assert(found);
 }
