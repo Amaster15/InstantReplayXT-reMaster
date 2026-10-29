@@ -1,5 +1,6 @@
 #pragma once
 #include "UpdateInfo.h"
+#include "UpdateTransport.h"
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QPushButton>
@@ -93,18 +94,23 @@ public:
         check->setEnabled(true); install->setEnabled(!release.name.isEmpty()); cancel->setEnabled(false);
         status->setText(message);
     }
-    QNetworkReply *get(const QUrl &url) {
+    QNetworkReply *get(const QUrl &url, qint64 maximumBytes) {
+#ifdef Q_OS_WIN
+        return new updates::CurlReply(url, maximumBytes, this);
+#else
+        Q_UNUSED(maximumBytes);
         QNetworkRequest request(url);
-        request.setRawHeader("User-Agent", "InstantReplayXT/2.0.7");
+        request.setRawHeader("User-Agent", "InstantReplayXT/2.0.8");
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
         request.setTransferTimeout(30000);
         return network.get(request);
+#endif
     }
     void checkLatest() {
         if (reply || !marker.isEmpty()) return;
         release = {}; install->setEnabled(false); check->setEnabled(false); cancel->setEnabled(true);
         status->setText("Checking GitHub…"); progress->setValue(0);
-        auto *request = get(QUrl("https://api.github.com/repos/Amaster15/InstantReplayXT-reMaster/releases/latest")); reply = request;
+        auto *request = get(QUrl("https://api.github.com/repos/Amaster15/InstantReplayXT-reMaster/releases/latest"), 1024 * 1024); reply = request;
         connect(request, &QNetworkReply::readyRead, this, [request] { if (request->bytesAvailable() > 1024 * 1024) request->abort(); });
         connect(request, &QNetworkReply::finished, this, [this, request] {
             request->deleteLater(); reply = nullptr; check->setEnabled(true); cancel->setEnabled(false);
@@ -132,7 +138,7 @@ public:
         received = 0; hash.reset(); writeFailed = false;
         check->setEnabled(false); install->setEnabled(false); cancel->setEnabled(true);
         status->setText("Downloading " + release.name + "…");
-        auto *request = get(release.url); reply = request;
+        auto *request = get(release.url, release.size); reply = request;
         auto *deadline = new QTimer(request); deadline->setSingleShot(true); deadline->start(300000);
         connect(deadline, &QTimer::timeout, request, &QNetworkReply::abort);
         connect(request, &QNetworkReply::readyRead, this, [this, request] {
@@ -142,7 +148,7 @@ public:
         });
         connect(request, &QNetworkReply::finished, this, [this, request] {
             request->deleteLater(); reply = nullptr;
-            if (request->error() != QNetworkReply::NoError || writeFailed) { fail("Download failed or was cancelled. No installer was run."); return; }
+            if (request->error() != QNetworkReply::NoError || writeFailed) { fail("Download failed or was cancelled: " + request->errorString() + ". No installer was run."); return; }
             if (received != release.size || QString::fromLatin1(hash.result().toHex()) != release.digest) { fail("Installer verification failed. No installer was run."); return; }
             if (!file->commit()) { fail("Could not save the verified installer."); return; }
             file.reset(); queueInstall();
