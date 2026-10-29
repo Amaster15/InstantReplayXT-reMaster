@@ -9,6 +9,8 @@
 #include <atomic>
 #include <string>
 #include <cstring>
+#include <cstdarg>
+#include <cstdio>
 
 namespace {
 // Stable libVLC 3 C ABI. Opaque handles avoid a build/link dependency on VLC;
@@ -37,6 +39,8 @@ struct Vlc {
     API(void, libvlc_release, libvlc_instance_t *);
     API(const char *, libvlc_get_version);
     API(int64_t, libvlc_clock);
+    API(const char *, libvlc_errmsg);
+    API(void, libvlc_log_set, libvlc_instance_t *, void (*)(void *, int, const void *, const char *, va_list), void *);
     API(libvlc_media_t *, libvlc_media_new_path, libvlc_instance_t *, const char *);
     API(void, libvlc_media_release, libvlc_media_t *);
     API(libvlc_media_t *, libvlc_media_player_get_media, libvlc_media_player_t *);
@@ -86,6 +90,7 @@ struct Vlc {
 #endif
         if (!library.load()) { blog(LOG_WARNING, "[InstantReplayXT] VLC library: %s", qPrintable(library.errorString())); return false; }
 #define LOAD(name) name = reinterpret_cast<decltype(name)>(library.resolve(#name)); if (!name) { blog(LOG_WARNING, "[InstantReplayXT] Missing VLC API: %s", #name); return false; }
+        LOAD(libvlc_errmsg); LOAD(libvlc_log_set);
         LOAD(libvlc_new); LOAD(libvlc_release); LOAD(libvlc_get_version); LOAD(libvlc_clock);
         LOAD(libvlc_media_player_get_media); LOAD(libvlc_media_tracks_get); LOAD(libvlc_media_tracks_release);
         LOAD(libvlc_media_new_path); LOAD(libvlc_media_release); LOAD(libvlc_media_player_new);
@@ -100,6 +105,11 @@ struct Vlc {
         if (std::strncmp(libvlc_get_version(), "3.", 2) != 0) { blog(LOG_WARNING, "[InstantReplayXT] VLC 3.x required; found %s", libvlc_get_version()); return false; }
         const char *options[] = {"--no-video-title-show", "--no-snapshot-preview", "--no-osd", "--no-stats", "--no-spu"};
         instance = libvlc_new(5, options);
+        if (instance) libvlc_log_set(instance, [](void *, int level, const void *, const char *format, va_list args) {
+            if (level < 3) return;
+            char message[1024]{}; std::vsnprintf(message, sizeof(message), format, args);
+            blog(LOG_WARNING, "[InstantReplayXT VLC] %s", message);
+        }, nullptr);
         if (!instance) blog(LOG_WARNING, "[InstantReplayXT] VLC could not create a playback instance.");
         return instance != nullptr;
     }
@@ -179,7 +189,10 @@ struct Player {
     void start() {
         if (path.empty()) return;
         vlc.libvlc_media_player_set_rate(player, float(speed) / 100.f);
-        vlc.libvlc_media_player_play(player);
+        if (vlc.libvlc_media_player_play(player) != 0) {
+            const auto *error = vlc.libvlc_errmsg();
+            blog(LOG_WARNING, "[InstantReplayXT] VLC playback could not start: %s", error ? error : "unknown error");
+        }
     }
     void update(obs_data_t *settings) {
         std::lock_guard<std::mutex> guard(mutex);
