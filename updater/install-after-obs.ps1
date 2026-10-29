@@ -1,21 +1,39 @@
 param([string]$Installer, [string]$ExpectedHash, [int]$ObsProcessId,
       [string]$Target, [string]$Marker, [string]$StatusFile)
 $ErrorActionPreference = 'Stop'
+# Use .NET directly so an inherited PowerShell module path cannot hide commands.
+function ObsStillRunning {
+    try {
+        $process = [System.Diagnostics.Process]::GetProcessById($ObsProcessId)
+        try { return !$process.HasExited } finally { $process.Dispose() }
+    } catch [System.ArgumentException] { return $false }
+}
 try {
-    $deadline = (Get-Date).AddMinutes(30)
-    while ((Test-Path -LiteralPath $Marker) -and (Get-Process -Id $ObsProcessId -ErrorAction SilentlyContinue)) {
-        if ((Get-Date) -gt $deadline) { throw 'Update expired: OBS was not closed within 30 minutes.' }
-        Start-Sleep -Seconds 1
+    $deadline = [DateTime]::Now.AddMinutes(30)
+    while ([System.IO.File]::Exists($Marker) -and (ObsStillRunning)) {
+        if ([DateTime]::Now -gt $deadline) { throw 'Update expired: OBS was not closed within 30 minutes.' }
+        [System.Threading.Thread]::Sleep(1000)
     }
-    if (!(Test-Path -LiteralPath $Marker)) { exit }
-    if ((Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ExpectedHash) {
-        throw 'Installer checksum changed; installation cancelled.'
-    }
-    $process = Start-Process -FilePath $Installer -ArgumentList ('/DIR="' + $Target + '"') -Verb RunAs -Wait -PassThru
-    if ($process.ExitCode -ne 0) { throw ('Setup was cancelled or failed (exit ' + $process.ExitCode + ').') }
-    Set-Content -LiteralPath $StatusFile -Value 'Update installed. Restart OBS.' -Encoding UTF8
+    if (![System.IO.File]::Exists($Marker)) { exit }
+    $stream = [System.IO.File]::OpenRead($Installer)
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $actualHash = [System.BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+    } finally { $stream.Dispose(); $hasher.Dispose() }
+    if ($actualHash -ne $ExpectedHash) { throw 'Installer checksum changed; installation cancelled.' }
+    $start = [System.Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $Installer
+    $start.Arguments = '/DIR="' + $Target + '"'
+    $start.UseShellExecute = $true
+    $start.Verb = 'runas'
+    $process = [System.Diagnostics.Process]::Start($start)
+    try {
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) { throw ('Setup was cancelled or failed (exit ' + $process.ExitCode + ').') }
+    } finally { $process.Dispose() }
+    [System.IO.File]::WriteAllText($StatusFile, 'Update installed. Restart OBS.')
 } catch {
-    Set-Content -LiteralPath $StatusFile -Value ('Update failed: ' + $_.Exception.Message) -Encoding UTF8
+    [System.IO.File]::WriteAllText($StatusFile, 'Update failed: ' + $_.Exception.Message)
 } finally {
-    Remove-Item -LiteralPath $Marker -ErrorAction SilentlyContinue
+    [System.IO.File]::Delete($Marker)
 }
