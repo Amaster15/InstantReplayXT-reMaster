@@ -100,7 +100,7 @@ def main():
     (stage / "build-info.json").write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
     artifacts = ROOT / "artifacts"
     artifacts.mkdir(exist_ok=True)
-    name = "InstantReplayXT-2.0.11-obs31-" + slug
+    name = "InstantReplayXT-2.0.12-obs31-" + slug
     if system == "Windows":
         archive = artifacts / (name + ".zip")
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
