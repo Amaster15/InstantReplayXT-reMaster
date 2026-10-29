@@ -139,6 +139,7 @@ public:
             replay_status("Replay Buffer is stopped. Click Start Replay Buffer in OBS, let it collect video, then try again.");
             return;
         }
+        finishSpeed(); // Cancel a pending seek before saving can replace the source file.
         scene = obs_get_source_by_name(get_scene().c_str());
         media = obs_get_source_by_name(get_replay_source_name().c_str());
         original = obs_frontend_get_current_scene();
