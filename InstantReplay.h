@@ -36,3 +36,7 @@ void replay_callout_init();
 
 void replayShutdown();
 void replay_callout_shutdown();
+
+void replay_play_clip(const std::string &path, bool switchScene);
+void replay_set_speed(int percent);
+std::string replay_current_file();

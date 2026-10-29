@@ -79,7 +79,7 @@ void replay_backup_saved() { if (co) co->ui->matches->backupSaved(); }
 void replay_status(const std::string &message)
 {
     blog(LOG_INFO, "[InstantReplayXT] %s", message.c_str());
-    if (co) co->ui->statusLabel->setText(QString::fromUtf8(message.c_str()));
+    if (co) { co->ui->statusLabel->setText(QString::fromUtf8(message.c_str())); co->ui->library->status->setText(QString::fromUtf8(message.c_str())); }
 }
 
 
@@ -88,6 +88,24 @@ replayCallout::replayCallout(QWidget *parent)
 	ui(new Ui_replayCallout)
 {
 	ui->setupUi(this);
+    ui->library->folders = [this] {
+        QList<QPair<QString, QString>> result;
+        result.append({"Backup folder", ui->filePathBackupEdit->text().trimmed()});
+        for (int row = 0; row < ui->matches->folders->rowCount(); ++row)
+            result.append({ui->matches->folders->item(row, 1)->text(), ui->matches->folders->item(row, 2)->text().trimmed()});
+        return result;
+    };
+    ui->library->latest = [this] {
+        auto current = replay_current_file();
+        if (!current.empty()) return QString::fromStdString(current);
+        auto *source = obs_get_source_by_name(get_replay_source_name().c_str());
+        auto *settings = source ? obs_source_get_settings(source) : nullptr;
+        QString path = QString::fromUtf8(obs_data_get_string(settings, "local_file"));
+        obs_data_release(settings); obs_source_release(source);
+        return path;
+    };
+    ui->library->play = [](const QString &path, bool switchScene) { replay_play_clip(path.toStdString(), switchScene); };
+    ui->library->changeSpeed = [](int percent) { replay_set_speed(percent); };
     ui->matches->legacyFolder = [this] { return ui->filePathBackupEdit->text(); };
 
 	QObject::connect(ui->closeButton->button(QDialogButtonBox::Close),
@@ -126,6 +144,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 	{
 		obs_data_t *obj = obs_data_create();
         co->ui->matches->save(obj);
+        obs_data_set_bool(obj, "librarySwitchScene", co->ui->library->switchScene->isChecked());
 		QString qstr;
 		std::string str;
 
@@ -167,6 +186,9 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 			obj = obs_data_create();
 		}
 		co->ui->matches->load(obj);
+        co->ui->library->switchScene->setChecked(obs_data_get_bool(obj, "librarySwitchScene"));
+        co->ui->library->speed->setValue(100);
+        replay_set_speed(100);
         obs_data_set_default_int(obj, "wait", 10);
         obs_data_set_default_string(obj, "scene", "Replay Scene");
         obs_data_set_default_string(obj, "sourceName", "Instant Replay Media Source");

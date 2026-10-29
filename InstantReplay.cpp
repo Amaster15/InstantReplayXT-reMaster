@@ -7,6 +7,7 @@
 #include <QTimer>
 #include <QThreadPool>
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <vector>
 
@@ -15,7 +16,13 @@ namespace fs = std::filesystem;
 struct MutedSource { obs_source_t *source; bool muted; };
 class ReplayController : public QObject {
 public:
-    QTimer timer;
+    QTimer timer, playbackPoll, speedWait;
+    int speedPercent = 100, appliedSpeed = 100, speedTicks = 0, playbackTicks = 0;
+    int64_t resumePosition = 0;
+    bool resumePaused = false, speedUpdated = false, libraryPlayback = false;
+    std::string selectedReplay;
+    obs_source_t *speedSource = nullptr;
+    std::atomic<unsigned> speedEpoch{0};
     QThreadPool backups;
     enum Phase { Idle, Saving, ReleasingMedia, Processing, TransitionIn, Playing, TransitionOut } phase = Idle;
     obs_source_t *original = nullptr;
@@ -30,6 +37,31 @@ public:
     bool canPlay = false, backupRequested = false, autoSwitch = false;
 
     ReplayController() {
+        playbackPoll.setInterval(100);
+        connect(&playbackPoll, &QTimer::timeout, this, [this] {
+            if (!libraryPlayback || !media || phase != Playing || speedSource) return;
+            const auto state = obs_source_media_get_state(media);
+            if (state == OBS_MEDIA_STATE_ENDED || state == OBS_MEDIA_STATE_ERROR) {
+                if (state == OBS_MEDIA_STATE_ERROR) replay_status("OBS could not play this clip. Check the OBS log.");
+                advance();
+            } else if (++playbackTicks >= 100 && state != OBS_MEDIA_STATE_PLAYING && state != OBS_MEDIA_STATE_PAUSED) {
+                replay_status("Clip did not start. Make sure the replay Media Source is visible in the replay scene.");
+                advance();
+            }
+        });
+        speedWait.setInterval(50);
+        connect(&speedWait, &QTimer::timeout, this, [this] {
+            if (!speedSource) return;
+            if (speedUpdated && obs_source_media_get_duration(speedSource) > 0) {
+                obs_source_media_set_time(speedSource, resumePosition);
+                if (resumePaused) obs_source_media_play_pause(speedSource, true);
+                finishSpeed();
+                if (appliedSpeed != speedPercent) setSpeed(speedPercent);
+            } else if (++speedTicks >= 100) {
+                finishSpeed();
+                replay_status("Speed changed, but OBS did not confirm a seekable clip; playback position could not be restored.");
+            }
+        });
         timer.setSingleShot(true);
         connect(&timer, &QTimer::timeout, this, [this] { advance(); });
     }
@@ -43,6 +75,9 @@ public:
     }
     void reset(bool returnToScene) {
         timer.stop();
+        playbackPoll.stop();
+        finishSpeed();
+        libraryPlayback = false;
         disconnectMediaUpdate();
         if (!heldMediaFile.empty() && media) configureMedia(heldMediaFile);
         heldMediaFile.clear();
@@ -54,6 +89,48 @@ public:
         obs_source_release(scene); scene = nullptr;
         obs_source_release(media); media = nullptr;
         phase = Idle;
+    }
+    static void speedUpdate(void *data, calldata_t *) {
+        auto *self = static_cast<ReplayController *>(data);
+        const auto epoch = self->speedEpoch.load();
+        QMetaObject::invokeMethod(self, [self, epoch] { if (epoch == self->speedEpoch.load() && self->speedSource) self->speedUpdated = true; }, Qt::QueuedConnection);
+    }
+    void finishSpeed() {
+        ++speedEpoch;
+        speedWait.stop();
+        if (speedSource) {
+            signal_handler_disconnect(obs_source_get_signal_handler(speedSource), "update", speedUpdate, this);
+            obs_source_release(speedSource); speedSource = nullptr;
+        }
+    }
+    void setSpeed(int percent) {
+        speedPercent = std::clamp(percent, 25, 200);
+        if (speedSource || phase == Saving || phase == ReleasingMedia || phase == Processing) return;
+        auto *source = media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
+        if (!source) return;
+        if (std::string(obs_source_get_unversioned_id(source)) != "ffmpeg_source") { obs_source_release(source); return; }
+        auto *settings = obs_source_get_settings(source);
+        int oldSpeed = (int)obs_data_get_int(settings, "speed_percent");
+        obs_data_release(settings);
+        if (oldSpeed == speedPercent) { obs_source_release(source); return; }
+        const auto state = obs_source_media_get_state(source);
+        const bool running = state == OBS_MEDIA_STATE_PLAYING || state == OBS_MEDIA_STATE_PAUSED;
+        if (running) {
+            speedSource = source;
+            resumePosition = std::max<int64_t>(0, obs_source_media_get_time(source));
+            resumePaused = state == OBS_MEDIA_STATE_PAUSED;
+            speedUpdated = false; speedTicks = 0;
+            signal_handler_connect(obs_source_get_signal_handler(source), "update", speedUpdate, this);
+            speedWait.start();
+        }
+        appliedSpeed = speedPercent;
+        // Keep the existing replay's wall-clock budget proportional to playback speed.
+        if (!libraryPlayback && phase == Playing && timer.isActive())
+            timer.start(std::max(1, timer.remainingTime() * (oldSpeed > 0 ? oldSpeed : 100) / speedPercent));
+        auto *update = obs_data_create();
+        obs_data_set_int(update, "speed_percent", speedPercent);
+        obs_source_update(source, update); obs_data_release(update);
+        if (!running) obs_source_release(source);
     }
     void start() {
         if (phase != Idle) { replay_status("A replay is already in progress."); return; }
@@ -142,6 +219,7 @@ public:
                 replay_status("Main replay saved at " + result.path + (result.backupFile.empty() ? "" : ". Backup saved at " + result.backupFile) + (result.warning.empty() ? "" : ". " + result.warning));
                 heldMediaFile.clear();
                 lastReplay = result.path;
+                selectedReplay.clear();
                 // Arm the Media Source for normal scene activation, without changing scenes.
                 if (media && std::string(obs_source_get_unversioned_id(media)) == "ffmpeg_source")
                     configureMedia(result.path);
@@ -158,6 +236,7 @@ public:
     void configureMedia(const std::string &replay) {
         obs_data_t *settings = obs_data_create();
         obs_data_set_string(settings, "local_file", replay.c_str());
+        obs_data_set_int(settings, "speed_percent", speedPercent);
         obs_data_set_bool(settings, "is_local_file", true);
         obs_data_set_bool(settings, "close_when_inactive", true);
         obs_data_set_bool(settings, "restart_on_activate", true);
@@ -172,8 +251,10 @@ public:
         obs_source_media_restart(media);
         timer.start(pause);
     }
-    void playLatest(bool manual = false) {
-        if (phase != Idle || !get_enabled()) return;
+    void playLatest(bool manual = false, const std::string &clip = "", bool library = false) {
+        if (phase != Idle) { replay_status("A replay is already in progress. Wait for it to finish before selecting another clip."); return; }
+        if (!get_enabled()) { replay_status("Enable Instant Replay in Replay settings first."); return; }
+        finishSpeed();
         scene = obs_get_source_by_name(get_scene().c_str());
         media = obs_get_source_by_name(get_replay_source_name().c_str());
         original = obs_frontend_get_current_scene();
@@ -182,7 +263,7 @@ public:
             replay_status("Cannot play: select a valid replay scene and Media Source.");
             reset(false); return;
         }
-        std::string replay = lastReplay;
+        std::string replay = clip.empty() ? lastReplay : clip;
         if (replay.empty()) {
             auto *settings = obs_source_get_settings(media);
             replay = obs_data_get_string(settings, "local_file");
@@ -193,6 +274,18 @@ public:
             replay_status("No saved replay available. Save a replay first.");
             reset(false); return;
         }
+        if (library) {
+            selectedReplay = replay;
+            // Arm a hidden source for manual scene activation without muting live audio.
+            if (manual && original != scene) {
+                configureMedia(replay);
+                reset(false);
+                replay_status("Selected " + replay + ". Enter the replay scene to show it.");
+                return;
+            }
+        }
+        libraryPlayback = library;
+        playbackTicks = 0;
         // Manual scene selection stays on that scene; hotkey playback returns to live.
         if (manual || original == scene) { obs_source_release(original); original = nullptr; }
         pause = std::max(0, get_pause());
@@ -212,9 +305,10 @@ public:
         }
         bool entered = phase == Idle && current && get_scene() == obs_source_get_name(current);
         obs_source_release(current);
-        if (entered) playLatest(true);
+        if (entered) playLatest(true, selectedReplay, !selectedReplay.empty());
     }
     void advance() {
+        timer.stop();
         switch (phase) {
         case ReleasingMedia:
             replay_status("Could not release replay source in time. OBS original retained at " + pendingReplay);
@@ -235,9 +329,11 @@ public:
                 obs_source_set_muted(source, true);
             }
             phase = Playing;
-            timer.start(std::max(1, length - 2 * pause));
+            if (libraryPlayback) playbackPoll.start();
+            else timer.start(std::max(1, (length - 2 * pause) * 100 / speedPercent));
             break;
         case Playing:
+            playbackPoll.stop();
             if (!original) { reset(false); break; }
             phase = TransitionOut;
             obs_frontend_set_current_scene(original);
@@ -261,6 +357,8 @@ void frontendEvent(obs_frontend_event event, void *) {
                event == OBS_FRONTEND_EVENT_EXIT || event == OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN) {
         controller->reset(false);
         controller->lastReplay.clear();
+        controller->selectedReplay.clear();
+        controller->speedPercent = 100;
     }
     else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED && controller->phase == ReplayController::Saving)
         controller->reset(false);
@@ -293,6 +391,7 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
     if (hotkeyId == OBS_INVALID_HOTKEY_ID) return;
     if (saving) {
         auto *obj = obs_data_create();
+        if (controller) obs_data_set_string(obj, "lastReplayFile", controller->lastReplay.c_str());
         auto *keys = obs_hotkey_save(hotkeyId);
         obs_data_set_array(obj, "hotkey", keys);
         auto *playKeys = obs_hotkey_save(playHotkeyId);
@@ -303,6 +402,7 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
         obs_data_release(obj);
     } else {
         auto *obj = obs_data_get_obj(save_data, "InstantReplay");
+        if (controller) controller->lastReplay = obs_data_get_string(obj, "lastReplayFile");
         auto *keys = obs_data_get_array(obj, "hotkey");
         obs_hotkey_load(hotkeyId, keys);
         auto *playKeys = obs_data_get_array(obj, "play_hotkey");
@@ -312,3 +412,11 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
         obs_data_release(obj);
     }
 }
+
+void replay_play_clip(const std::string &path, bool switchScene) {
+    if (controller) controller->playLatest(!switchScene, path, true);
+}
+void replay_set_speed(int percent) {
+    if (controller) controller->setSpeed(percent);
+}
+std::string replay_current_file() { return controller ? controller->lastReplay : ""; }
