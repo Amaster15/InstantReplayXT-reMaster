@@ -116,9 +116,10 @@ int main(int argc, char **argv) {
             for (auto *combo : window->findChildren<QComboBox *>())
                 if (combo->accessibleName() == "Replay player mode") mode = combo;
             assert(mode);
-            // Exercise the real dialog connection, including failed switch rollback.
-            mode->setCurrentIndex(1);
-            assert(mode->currentIndex() == 0);
+            // VLC is the default. Invalid mode changes roll back with a visible error.
+            assert(mode->currentData().toInt() == 1);
+            mode->setCurrentIndex(mode->findData(0));
+            assert(mode->currentData().toInt() == 1);
             bool errorShown = false;
             for (auto *label : window->findChildren<QLabel *>())
                 if (label->text().contains("Choose a replay scene")) errorShown = true;
@@ -132,15 +133,16 @@ int main(int argc, char **argv) {
             choice("sceneLineEdit")->setText("Replay test");
             assert(choice("replaySourceNameEdit")->findData("Media test") >= 0);
             choice("replaySourceNameEdit")->setText("Media test");
-            mode->setCurrentIndex(1);
-            assert(mode->currentIndex() == 1);
+            mode->setCurrentIndex(mode->findData(0));
+            mode->setCurrentIndex(mode->findData(1));
+            assert(mode->currentData().toInt() == 1);
             auto *vlc = obs_get_source_by_name("Media test (VLC live)"); assert(vlc);
             auto *slider = mode->parentWidget()->findChild<QSlider *>(); assert(slider);
             slider->setValue(50);
             QEventLoop loop; QTimer::singleShot(100, &loop, &QEventLoop::quit); loop.exec();
             auto *settings = obs_source_get_settings(vlc);
             assert(obs_data_get_int(settings, "speed_percent") == 50); obs_data_release(settings);
-            mode->setCurrentIndex(0); assert(mode->currentIndex() == 0);
+            mode->setCurrentIndex(mode->findData(0)); assert(mode->currentData().toInt() == 0);
             slider->setValue(75);
             QTimer::singleShot(250, &loop, &QEventLoop::quit); loop.exec();
             settings = obs_source_get_settings(source);

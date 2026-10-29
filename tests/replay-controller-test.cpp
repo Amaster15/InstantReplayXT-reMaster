@@ -16,6 +16,7 @@ void replay_backup_saved() {}
 void replay_status(const std::string &message) { status = message; }
 static std::string backupDir;
 static std::string replayPath;
+bool replay_ensure_player() { return true; }
 bool get_enabled() { return enabled; }
 int get_wait() { return 1000; }
 int get_pause() { return 300; }
@@ -176,6 +177,13 @@ int main(int argc, char **argv) {
         c.playLatest(false, chosen, true);
         assert(currentScene == obs_scene_get_source(replayScene));
         c.advance();
+        // A new row click replaces a running clip and preserves the live return scene.
+        c.playLatest(false, chosen, true);
+        assert(c.phase == ReplayController::TransitionIn && c.original == obs_scene_get_source(live));
+        c.advance();
+        const auto preserved = c.media;
+        c.playLatest(false, (testDir / "missing.mkv").u8string(), true);
+        assert(c.phase == ReplayController::Playing && c.media == preserved);
         mediaState = OBS_MEDIA_STATE_PLAYING; mediaPosition = 7500;
         c.setSpeed(50); assert(c.speedSource);
         QCoreApplication::processEvents();
@@ -191,6 +199,12 @@ int main(int argc, char **argv) {
         mediaState = OBS_MEDIA_STATE_PLAYING; mediaPosition = 0;
         QMetaObject::invokeMethod(&c.speedWait, "timeout", Qt::DirectConnection);
         assert(mediaPosition == 9000 && mediaState == OBS_MEDIA_STATE_PAUSED);
+        // Replacement also cancels an unfinished Standard Media Source speed seek.
+        c.setSpeed(80); assert(c.speedSource);
+        c.playLatest(false, chosen, true);
+        assert(!c.speedSource && c.phase == ReplayController::TransitionIn);
+        assert(c.original == obs_scene_get_source(live));
+        c.advance();
         mediaState = OBS_MEDIA_STATE_ENDED;
         QMetaObject::invokeMethod(&c.playbackPoll, "timeout", Qt::DirectConnection);
         assert(currentScene == obs_scene_get_source(live) && c.phase == ReplayController::TransitionOut);
@@ -198,11 +212,22 @@ int main(int argc, char **argv) {
         c.setSpeed(100);
         c.playLatest(false, (testDir / "missing.mkv").u8string(), true);
         assert(c.phase == ReplayController::Idle && currentScene == obs_scene_get_source(live));
+        // Play without switching replaces immediately and stays on the replay scene.
+        currentScene = obs_scene_get_source(replayScene);
+        c.playLatest(true, chosen, true); c.advance();
+        c.playLatest(true, chosen, true);
+        assert(c.phase == ReplayController::TransitionIn && !c.original);
+        controller = &c;
+        assert(replay_prepare_player_change());
+        assert(c.phase == ReplayController::Idle && !c.timer.isActive() && !c.playbackPoll.isActive());
+        controller = nullptr;
         // Never replace a file until the Media Source acknowledges closing it.
         currentScene = obs_scene_get_source(live);
         c.start();
         std::ofstream(fs::u8path(replayPath)) << "release timeout retained";
         c.saved(); assert(c.phase == ReplayController::ReleasingMedia);
+        c.playLatest(false, chosen, true); assert(c.phase == ReplayController::ReleasingMedia);
+        controller = &c; assert(!replay_prepare_player_change()); controller = nullptr;
         c.advance(); // Simulate an unresponsive video update: retain the original and restore source.
         assert(c.phase == ReplayController::Idle && fs::exists(fs::u8path(replayPath)));
         QCoreApplication::processEvents();
