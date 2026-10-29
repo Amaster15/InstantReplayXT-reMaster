@@ -34,9 +34,26 @@ dependencies, or Ubuntu 24.04's Qt 6.4 on Linux. The source builds with newer Qt
 - Correct timeout units and clamp short replay durations to prevent enormous waits.
 - Preserve scene/source references, check configuration, and restore prior global audio mute states.
 - Manual scene changes and scene collection cleanup cancel the replay safely.
-- Backups run off the UI thread, preserve existing filenames, and handle UTF-8 paths on Windows/Linux.
+- Replay files and backups are written off the UI thread, with UTF-8 paths on Windows/Linux.
+- The main clip is `InstantReplay` plus the OBS container extension (for example, `InstantReplay.mkv`), replaced on each save. Backups use `InstantReplay_1.mkv`, `InstantReplay_2.mkv`, etc., continuing after the highest existing number.
+- Browse buttons select replay and backup folders. A blank replay folder uses OBS's save directory.
+- Saving works even with incomplete playback settings. The settings dialog and OBS log report stopped buffers, missing playback configuration, timeouts, and file errors.
 - Clean up timers, callbacks, hotkeys and the settings dialog on unload.
 - Keep the original `InstantReplay` and `replayCallout_data` scene collection settings keys.
+
+## Using the replay hotkey
+
+1. In OBS Settings > Output, enable Replay Buffer and configure its duration and recording format.
+2. Click **Start Replay Buffer** in OBS and let it collect some video.
+3. Open Tools > Instant Replay settings and check **Enable**. Choose the replay folder with **Browse…** (blank uses OBS's recording folder). Optionally enable backups and browse to their folder.
+4. Set the replay scene and Media Source names exactly as they appear in OBS. These are needed for automatic playback; saving still works without them.
+5. Assign **Instant Replay XT: Save and play** in OBS Settings > Hotkeys. Trigger from your live scene.
+
+The status at the bottom of the plugin settings and log lines containing `[InstantReplayXT]`
+explain the result. Existing numbered backups are retained. Once the fixed clip has been
+written successfully, OBS's timestamped original is removed; on a write error the original
+is retained. Changing recording format changes the extension, so a clip in the old format
+is left untouched. Backups must be enabled and have a folder selected.
 
 ## Build a Windows x64 package
 
@@ -54,8 +71,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.0-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.0-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.1-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.1-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -99,7 +116,7 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.0-obs31-windows-x64-setup.exe`.
+Close OBS, then run `InstantReplayXT-2.0.1-obs31-windows-x64-setup.exe`.
 Accept the Windows administrator prompt. The installer chooses the standard location:
 
 ```text
@@ -125,7 +142,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.0-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.1-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -137,8 +154,8 @@ directory, outside the plugin search path. Restart OBS after installation.
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.0-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.0-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.1-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.1-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,

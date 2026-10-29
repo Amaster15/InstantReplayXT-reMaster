@@ -49,6 +49,9 @@ public:
 	QLineEdit *replaySourceNameEdit;
 
 	QDialogButtonBox *closeButton;
+	QLineEdit *replayFolderEdit;
+	QPushButton *replayBrowse, *backupBrowse;
+	QLabel *statusLabel;
 
 	void setupUi(QDialog *replayCallout)
 	{
@@ -142,8 +145,10 @@ public:
 
 		filePathBackupEdit = new QLineEdit(replayCallout);
 		filePathBackupEdit->setObjectName(QStringLiteral("filePathBackupEdit"));
-		filePathBackupEdit->setText("Replay Scene");
-		replayLayout->addWidget(filePathBackupEdit, 8, 2, 1, 2);
+		filePathBackupEdit->setPlaceholderText("Choose a backup folder");
+		replayLayout->addWidget(filePathBackupEdit, 8, 2);
+		backupBrowse = new QPushButton("Browse…", replayCallout);
+		replayLayout->addWidget(backupBrowse, 8, 3);
 
 		replaySourceNameLabel = new QLabel(replayCallout);
 		replaySourceNameLabel->setObjectName(QStringLiteral("replaySourceNameLabel"));
@@ -155,10 +160,25 @@ public:
 		replayLayout->addWidget(replaySourceNameEdit, 9, 2, 1, 2);
 
 
-		closeButton = new QDialogButtonBox(replayCallout);
+		replayLayout->addWidget(new QLabel("Replay folder", replayCallout), 10, 1);
+        replayFolderEdit = new QLineEdit(replayCallout);
+        replayFolderEdit->setPlaceholderText("Blank: use OBS recording folder");
+        replayLayout->addWidget(replayFolderEdit, 10, 2);
+        replayBrowse = new QPushButton("Browse…", replayCallout);
+        replayLayout->addWidget(replayBrowse, 10, 3);
+        auto *hint = new QLabel("Main file: InstantReplay + video extension (replaced each save).\nBackups: InstantReplay_1, InstantReplay_2, …\nStart OBS Replay Buffer before using the Save and play hotkey.", replayCallout);
+        hint->setWordWrap(true);
+        replayLayout->addWidget(hint, 11, 1, 1, 3);
+        statusLabel = new QLabel("Ready. Waiting for the Save and play hotkey.", replayCallout);
+        statusLabel->setWordWrap(true);
+        statusLabel->setTextFormat(Qt::PlainText);
+        statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        replayLayout->addWidget(statusLabel, 12, 1, 1, 3);
+        replayCallout->setMinimumWidth(600);
+        closeButton = new QDialogButtonBox(replayCallout);
 		closeButton->setObjectName(QStringLiteral("buttonBox"));
 		closeButton->setStandardButtons(QDialogButtonBox::Close);
-		replayLayout->addWidget(closeButton, 10, 3, 1, 1);
+		replayLayout->addWidget(closeButton, 13, 3, 1, 1);
 
 		retranslateUi(replayCallout);
 

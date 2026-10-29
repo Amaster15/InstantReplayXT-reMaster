@@ -8,6 +8,7 @@
 
 #include <QPointer>
 #include <QCloseEvent>
+#include <QFileDialog>
 
 QPointer<replayCallout> co;
 static QPointer<QAction> settingsAction;
@@ -63,6 +64,18 @@ std::string get_replay_source_name()
 }
 
 
+std::string get_replay_path()
+{
+    return co->ui->replayFolderEdit->text().trimmed().toStdString();
+}
+
+void replay_status(const std::string &message)
+{
+    blog(LOG_INFO, "[InstantReplayXT] %s", message.c_str());
+    if (co) co->ui->statusLabel->setText(QString::fromUtf8(message.c_str()));
+}
+
+
 replayCallout::replayCallout(QWidget *parent)
 	: QDialog(parent),
 	ui(new Ui_replayCallout)
@@ -70,7 +83,13 @@ replayCallout::replayCallout(QWidget *parent)
 	ui->setupUi(this);
 
 	QObject::connect(ui->closeButton->button(QDialogButtonBox::Close),
-		SIGNAL(clicked()), this, SLOT(hide()));
+		SIGNAL(clicked()), this, SLOT(close()));
+    auto browse = [this](QLineEdit *field) {
+        const QString path = QFileDialog::getExistingDirectory(this, "Choose replay folder", field->text());
+        if (!path.isEmpty()) { field->setText(path); obs_frontend_save(); }
+    };
+    connect(ui->replayBrowse, &QPushButton::clicked, this, [this, browse] { browse(ui->replayFolderEdit); });
+    connect(ui->backupBrowse, &QPushButton::clicked, this, [this, browse] { browse(ui->filePathBackupEdit); });
 }
 
 void replayCallout::ShowHideDialog()
@@ -112,6 +131,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 
 	
 		// Instant Replay XT extended settings
+		obs_data_set_string(obj, "replayFolder", co->ui->replayFolderEdit->text().toUtf8().constData());
 		obs_data_set_bool(obj, "backup", co->ui->enableBackupCheck->isChecked());
 		
 		qstr = co->ui->filePathBackupEdit->text();
@@ -136,6 +156,9 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 			obj = obs_data_create();
 		}
 		obs_data_set_default_int(obj, "wait", 10);
+        obs_data_set_default_string(obj, "scene", "Replay Scene");
+        obs_data_set_default_string(obj, "sourceName", "Instant Replay Media Source");
+        co->ui->replayFolderEdit->setText(QString::fromUtf8(obs_data_get_string(obj, "replayFolder")));
 		obs_data_set_default_int(obj, "pause", 300);
 		obs_data_set_default_int(obj, "replay", 20);
 		co->ui->enableCheck->setChecked(obs_data_get_bool(obj, "enable"));

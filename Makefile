@@ -7,7 +7,7 @@ CPPFLAGS += -I. -I$(OBS_INCLUDE) $(shell $(PKG_CONFIG) --cflags Qt6Widgets)
 CXXFLAGS += -std=c++17 -fPIC -Wall -Wextra
 LDLIBS += $(shell $(PKG_CONFIG) --libs Qt6Widgets) -lobs -lobs-frontend-api
 SOURCES = module-entrance.cpp InstantReplay.cpp InstantReplay_callout.cpp
-HEADERS = InstantReplay.h InstantReplay_callout.h ui_InstantReplay_callback.h
+HEADERS = ReplayFiles.h InstantReplay.h InstantReplay_callout.h ui_InstantReplay_callback.h
 .PHONY: all test clean
 all: build/InstantReplay.so
 build:
@@ -16,7 +16,7 @@ build/moc_InstantReplay_callout.cpp: InstantReplay_callout.h | build
 	$(MOC) $< -o $@
 build/InstantReplay.so: $(SOURCES) $(HEADERS) build/moc_InstantReplay_callout.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -shared $(SOURCES) build/moc_InstantReplay_callout.cpp -o $@ $(LDFLAGS) $(LDLIBS)
-build/replay-controller-test: tests/replay-controller-test.cpp InstantReplay.cpp InstantReplay.h | build
+build/replay-controller-test: tests/replay-controller-test.cpp InstantReplay.cpp InstantReplay.h ReplayFiles.h | build
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@ $(LDFLAGS) $(LDLIBS)
 test: build/replay-controller-test
 	./build/replay-controller-test
