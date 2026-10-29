@@ -10,7 +10,7 @@ This is for standard Windows x64 OBS installations, including Windows 10 with OB
 If you previously installed InstantReplay.dll in your OBS application's obs-plugins\64bit folder, move that old DLL out first. Do not leave two copies installed. A previous DLL in the standard destination is backed up outside OBS's plugin search folders before replacement.
 
 Restart OBS after installation. Open Tools > Instant Replay XT Settings.
-Bind the "Instant Replay XT: Save and play" hotkey. Do not bind that same key to OBS's Save Replay action.
+Bind "Instant Replay XT: Save replay" and "Instant Replay XT: Play latest replay" separately. Automatic switching is off by default; enable its checkbox in plugin settings if desired. Do not bind that same key to OBS's Save Replay action.
 
 Uninstall through Windows Settings > Apps > Instant Replay XT for OBS.
 Your OBS scenes, profiles, replay recordings and plugin backups are preserved.
