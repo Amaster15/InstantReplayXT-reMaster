@@ -18,6 +18,11 @@ bool get_enabled()
 	return co->ui->enableCheck->isChecked();
 }
 
+bool get_auto_switch()
+{
+    return co->ui->autoSwitchCheck->isChecked();
+}
+
 int get_wait()
 {
 	return co->ui->waitSpinBox->value() * 1000;
@@ -88,6 +93,7 @@ replayCallout::replayCallout(QWidget *parent)
         const QString path = QFileDialog::getExistingDirectory(this, "Choose replay folder", field->text());
         if (!path.isEmpty()) { field->setText(path); obs_frontend_save(); }
     };
+    connect(ui->playButton, &QPushButton::clicked, this, [] { instant_replay_play_hotkey(nullptr, OBS_INVALID_HOTKEY_ID, nullptr, true); });
     connect(ui->replayBrowse, &QPushButton::clicked, this, [this, browse] { browse(ui->replayFolderEdit); });
     connect(ui->backupBrowse, &QPushButton::clicked, this, [this, browse] { browse(ui->filePathBackupEdit); });
 }
@@ -119,6 +125,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		QString qstr;
 		std::string str;
 
+		obs_data_set_bool(obj, "autoSwitch", co->ui->autoSwitchCheck->isChecked());
 		obs_data_set_bool(obj, "enable", co->ui->enableCheck->isChecked());
 		obs_data_set_int(obj, "wait", co->ui->waitSpinBox->value());
 		obs_data_set_int(obj, "pause", co->ui->pauseSpinBox->value());
@@ -161,6 +168,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
         co->ui->replayFolderEdit->setText(QString::fromUtf8(obs_data_get_string(obj, "replayFolder")));
 		obs_data_set_default_int(obj, "pause", 300);
 		obs_data_set_default_int(obj, "replay", 20);
+		co->ui->autoSwitchCheck->setChecked(obs_data_get_bool(obj, "autoSwitch"));
 		co->ui->enableCheck->setChecked(obs_data_get_bool(obj, "enable"));
 		co->ui->waitSpinBox->setValue(obs_data_get_int(obj, "wait"));
 		co->ui->pauseSpinBox->setValue(obs_data_get_int(obj, "pause"));

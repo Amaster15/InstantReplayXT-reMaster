@@ -24,9 +24,9 @@ public:
     std::vector<MutedSource> muted;
     int pause = 0, length = 0;
     bool desktop = false, aux = false;
-    std::string backup, replayFolder;
+    std::string backup, replayFolder, lastReplay;
     unsigned generation = 0;
-    bool canPlay = false, backupRequested = false;
+    bool canPlay = false, backupRequested = false, autoSwitch = false;
 
     ReplayController() {
         timer.setSingleShot(true);
@@ -66,6 +66,7 @@ public:
         pause = std::max(0, get_pause());
         length = std::max(1, get_replay());
         desktop = get_D_mute(); aux = get_A_mute();
+        autoSwitch = get_auto_switch();
         backupRequested = get_backup_enabled();
         backup = backupRequested ? get_backup_path() : "";
         replayFolder = get_replay_path();
@@ -100,16 +101,21 @@ public:
                     reset(false); return;
                 }
                 replay_status("Saved " + result.path + (result.warning.empty() ? "" : ". " + result.warning));
-                if (!canPlay) {
-                    replay_status("Saved " + result.path + ". Playback skipped: select a valid replay scene and Media Source, and trigger from a different scene." +
-                        (result.warning.empty() ? "" : " " + result.warning));
-                    reset(false); return;
+                lastReplay = result.path;
+                // Arm the Media Source for normal scene activation, without changing scenes.
+                if (media && std::string(obs_source_get_unversioned_id(media)) == "ffmpeg_source")
+                    configureMedia(result.path);
+                if (autoSwitch && canPlay) {
+                    play(result.path);
+                } else {
+                    reset(false);
+                    // If the operator entered the replay scene while saving, play there now.
+                    sceneChanged();
                 }
-                play(result.path);
             }, Qt::QueuedConnection);
         });
     }
-    void play(const std::string &replay) {
+    void configureMedia(const std::string &replay) {
         obs_data_t *settings = obs_data_create();
         obs_data_set_string(settings, "local_file", replay.c_str());
         obs_data_set_bool(settings, "is_local_file", true);
@@ -118,10 +124,55 @@ public:
         obs_data_set_bool(settings, "looping", false);
         obs_source_update(media, settings);
         obs_data_release(settings);
+    }
+    void play(const std::string &replay, bool manual = false) {
+        configureMedia(replay);
         phase = TransitionIn;
-        obs_frontend_set_current_scene(scene);
+        if (!manual) obs_frontend_set_current_scene(scene);
         obs_source_media_restart(media);
         timer.start(pause);
+    }
+    void playLatest(bool manual = false) {
+        if (phase != Idle || !get_enabled()) return;
+        scene = obs_get_source_by_name(get_scene().c_str());
+        media = obs_get_source_by_name(get_replay_source_name().c_str());
+        original = obs_frontend_get_current_scene();
+        if (!scene || !obs_scene_from_source(scene) || !media || !original ||
+            std::string(obs_source_get_unversioned_id(media)) != "ffmpeg_source") {
+            replay_status("Cannot play: select a valid replay scene and Media Source.");
+            reset(false); return;
+        }
+        std::string replay = lastReplay;
+        if (replay.empty()) {
+            auto *settings = obs_source_get_settings(media);
+            replay = obs_data_get_string(settings, "local_file");
+            obs_data_release(settings);
+        }
+        std::error_code error;
+        if (replay.empty() || !fs::is_regular_file(fs::u8path(replay), error)) {
+            replay_status("No saved replay available. Save a replay first.");
+            reset(false); return;
+        }
+        // Manual scene selection stays on that scene; hotkey playback returns to live.
+        if (manual || original == scene) { obs_source_release(original); original = nullptr; }
+        pause = std::max(0, get_pause());
+        length = std::max(1, get_replay());
+        desktop = get_D_mute(); aux = get_A_mute();
+        replay_status("Playing " + replay);
+        play(replay, manual);
+    }
+    void sceneChanged() {
+        if (phase == Saving || phase == Processing) { canPlay = false; return; }
+        auto *current = obs_frontend_get_current_scene();
+        if (phase == TransitionIn || phase == Playing) {
+            const bool left = current != scene;
+            obs_source_release(current);
+            if (left) reset(false);
+            return;
+        }
+        bool entered = phase == Idle && current && get_scene() == obs_source_get_name(current);
+        obs_source_release(current);
+        if (entered) playLatest(true);
     }
     void advance() {
         switch (phase) {
@@ -144,6 +195,7 @@ public:
             timer.start(std::max(1, length - 2 * pause));
             break;
         case Playing:
+            if (!original) { reset(false); break; }
             phase = TransitionOut;
             obs_frontend_set_current_scene(original);
             timer.start(pause);
@@ -155,22 +207,18 @@ public:
 };
 ReplayController *controller = nullptr;
 obs_hotkey_id hotkeyId = OBS_INVALID_HOTKEY_ID;
+obs_hotkey_id playHotkeyId = OBS_INVALID_HOTKEY_ID;
 void frontendEvent(obs_frontend_event event, void *) {
     if (!controller) return;
     // OBS frontend events run on the UI thread. Manual scene changes cancel replay
     // without pulling the operator back to a scene they have deliberately left.
     if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED) controller->saved();
-    else if (event == OBS_FRONTEND_EVENT_SCENE_CHANGED && controller->phase == ReplayController::Processing)
-        controller->canPlay = false; // Save finishes, but do not override a manual scene choice.
-    else if (event == OBS_FRONTEND_EVENT_SCENE_CHANGED &&
-             (controller->phase == ReplayController::TransitionIn || controller->phase == ReplayController::Playing)) {
-        auto *current = obs_frontend_get_current_scene();
-        bool left = current != controller->scene;
-        obs_source_release(current);
-        if (left) controller->reset(false);
-    } else if (event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CLEANUP ||
-               event == OBS_FRONTEND_EVENT_EXIT || event == OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN)
+    else if (event == OBS_FRONTEND_EVENT_SCENE_CHANGED) controller->sceneChanged();
+    else if (event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CLEANUP ||
+               event == OBS_FRONTEND_EVENT_EXIT || event == OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN) {
         controller->reset(false);
+        controller->lastReplay.clear();
+    }
     else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED && controller->phase == ReplayController::Saving)
         controller->reset(false);
 }
@@ -178,12 +226,15 @@ void frontendEvent(obs_frontend_event event, void *) {
 
 void replayStartup() {
     controller = new ReplayController;
-    hotkeyId = obs_hotkey_register_frontend("Instant Replay", "Instant Replay XT: Save and play", instant_replay_hotkey, nullptr);
+    hotkeyId = obs_hotkey_register_frontend("Instant Replay", "Instant Replay XT: Save replay", instant_replay_hotkey, nullptr);
+    playHotkeyId = obs_hotkey_register_frontend("Instant Replay Play", "Instant Replay XT: Play latest replay", instant_replay_play_hotkey, nullptr);
     obs_frontend_add_event_callback(frontendEvent, nullptr);
 }
 void replayShutdown() {
     obs_frontend_remove_event_callback(frontendEvent, nullptr);
     if (hotkeyId != OBS_INVALID_HOTKEY_ID) obs_hotkey_unregister(hotkeyId);
+    if (playHotkeyId != OBS_INVALID_HOTKEY_ID) obs_hotkey_unregister(playHotkeyId);
+    playHotkeyId = OBS_INVALID_HOTKEY_ID;
     hotkeyId = OBS_INVALID_HOTKEY_ID;
     delete controller; controller = nullptr;
 }
@@ -191,12 +242,19 @@ void instant_replay_hotkey(void *, obs_hotkey_id, obs_hotkey_t *, bool pressed) 
     if (pressed && controller)
         QMetaObject::invokeMethod(controller, [] { if (controller) controller->start(); }, Qt::QueuedConnection);
 }
+void instant_replay_play_hotkey(void *, obs_hotkey_id, obs_hotkey_t *, bool pressed) {
+    if (pressed && controller)
+        QMetaObject::invokeMethod(controller, [] { if (controller) controller->playLatest(); }, Qt::QueuedConnection);
+}
 void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
     if (hotkeyId == OBS_INVALID_HOTKEY_ID) return;
     if (saving) {
         auto *obj = obs_data_create();
         auto *keys = obs_hotkey_save(hotkeyId);
         obs_data_set_array(obj, "hotkey", keys);
+        auto *playKeys = obs_hotkey_save(playHotkeyId);
+        obs_data_set_array(obj, "play_hotkey", playKeys);
+        obs_data_array_release(playKeys);
         obs_data_set_obj(save_data, "InstantReplay", obj);
         obs_data_array_release(keys);
         obs_data_release(obj);
@@ -204,6 +262,9 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
         auto *obj = obs_data_get_obj(save_data, "InstantReplay");
         auto *keys = obs_data_get_array(obj, "hotkey");
         obs_hotkey_load(hotkeyId, keys);
+        auto *playKeys = obs_data_get_array(obj, "play_hotkey");
+        obs_hotkey_load(playHotkeyId, playKeys);
+        obs_data_array_release(playKeys);
         obs_data_array_release(keys);
         obs_data_release(obj);
     }

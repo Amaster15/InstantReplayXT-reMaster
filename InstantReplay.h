@@ -14,6 +14,8 @@ void instant_replay_hotkey(void*, obs_hotkey_id, obs_hotkey_t*, bool);
 void instant_replay_save(obs_data_t *save_data, bool saving, void *);
 
 bool get_enabled();
+bool get_auto_switch();
+void instant_replay_play_hotkey(void*, obs_hotkey_id, obs_hotkey_t*, bool);
 int get_wait();
 int get_pause();
 int get_replay();

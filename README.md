@@ -30,7 +30,7 @@ dependencies, or Ubuntu 24.04's Qt 6.4 on Linux. The source builds with newer Qt
 
 - Qt 6/C++17 and real SDK headers replace Qt 5 and the vendored 2017 API header.
 - OBS's replay-saved event and UI timers replace the endless polling thread and sleeps.
-- One hotkey saves and plays the replay; repeated triggers during a replay are ignored.
+- Separate Save replay and Play latest replay hotkeys; automatic switching is optional and defaults off.
 - Correct timeout units and clamp short replay durations to prevent enormous waits.
 - Preserve scene/source references, check configuration, and restore prior global audio mute states.
 - Manual scene changes and scene collection cleanup cancel the replay safely.
@@ -41,13 +41,27 @@ dependencies, or Ubuntu 24.04's Qt 6.4 on Linux. The source builds with newer Qt
 - Clean up timers, callbacks, hotkeys and the settings dialog on unload.
 - Keep the original `InstantReplay` and `replayCallout_data` scene collection settings keys.
 
-## Using the replay hotkey
+## Saving and playing independently (2.0.2)
+
+Saving stays on your current scene by default. The existing save hotkey binding is retained,
+now labelled **Instant Replay XT: Save replay**. Bind the new **Play latest replay** hotkey
+separately, or click the matching button in the plugin settings. Hotkey/button playback
+switches to the replay scene and returns to the previous scene after the configured duration.
+Manually entering the replay scene plays the latest clip and leaves scene switching under
+your control. Leaving it early cancels playback control and restores muted audio.
+
+Check **Automatically switch to replay scene after saving** to restore the combined save/play
+behavior. The checkbox defaults off, including upgrades. Playback of an existing clip does
+not require Replay Buffer to be running. The latest file is also saved in the Media Source's
+settings so it can play after restarting OBS. Configure the Media Source inside the replay scene.
+
+## Using the replay hotkeys
 
 1. In OBS Settings > Output, enable Replay Buffer and configure its duration and recording format.
 2. Click **Start Replay Buffer** in OBS and let it collect some video.
 3. Open Tools > Instant Replay settings and check **Enable**. Choose the replay folder with **Browse…** (blank uses OBS's recording folder). Optionally enable backups and browse to their folder.
 4. Set the replay scene and Media Source names exactly as they appear in OBS. These are needed for automatic playback; saving still works without them.
-5. Assign **Instant Replay XT: Save and play** in OBS Settings > Hotkeys. Trigger from your live scene.
+5. Assign **Instant Replay XT: Save replay** and **Instant Replay XT: Play latest replay** in OBS Settings > Hotkeys. Save from your live scene. Play later using the playback hotkey, the plugin's **Play latest replay** button, or by manually entering the replay scene.
 
 The status at the bottom of the plugin settings and log lines containing `[InstantReplayXT]`
 explain the result. Existing numbered backups are retained. Once the fixed clip has been
@@ -71,8 +85,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.1-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.1-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.2-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.2-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -116,7 +130,7 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.1-obs31-windows-x64-setup.exe`.
+Close OBS, then run `InstantReplayXT-2.0.2-obs31-windows-x64-setup.exe`.
 Accept the Windows administrator prompt. The installer chooses the standard location:
 
 ```text
@@ -142,7 +156,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.1-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.2-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -154,8 +168,8 @@ directory, outside the plugin search path. Restart OBS after installation.
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.1-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.1-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.2-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.2-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,
@@ -181,9 +195,10 @@ OBS 34 packaging must be revalidated before claiming support.
 4. Set Write Pause to the maximum save timeout (e.g. 10 seconds; zero means one second).
    Set Transition Pause in milliseconds and Replay Length in seconds.
 5. Optionally enable global desktop/mic muting and select a backup folder.
-6. Bind **Instant Replay XT: Save and play** in Settings → Hotkeys. Remove that same
+6. Bind **Instant Replay XT: Save replay** in Settings → Hotkeys. Remove that same
    binding from OBS's **Save Replay** action; this plugin now requests the save itself.
-7. Trigger from a different scene. The replay plays and then returns to the original scene.
+7. Save without switching, then trigger Play latest replay from a different scene to play and return.
+   Alternatively enter the replay scene manually, or enable automatic switching after saving.
    A manual scene change cancels the automatic return.
 
 Replay duration remains timer-based, not media-end detection. The Media Source must

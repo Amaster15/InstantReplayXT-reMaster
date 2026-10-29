@@ -52,6 +52,8 @@ public:
 	QLineEdit *replayFolderEdit;
 	QPushButton *replayBrowse, *backupBrowse;
 	QLabel *statusLabel;
+    QCheckBox *autoSwitchCheck;
+    QPushButton *playButton;
 
 	void setupUi(QDialog *replayCallout)
 	{
@@ -166,19 +168,25 @@ public:
         replayLayout->addWidget(replayFolderEdit, 10, 2);
         replayBrowse = new QPushButton("Browse…", replayCallout);
         replayLayout->addWidget(replayBrowse, 10, 3);
-        auto *hint = new QLabel("Main file: InstantReplay + video extension (replaced each save).\nBackups: InstantReplay_1, InstantReplay_2, …\nStart OBS Replay Buffer before using the Save and play hotkey.", replayCallout);
+        auto *hint = new QLabel("Main file: InstantReplay + video extension (replaced each save).\nBackups: InstantReplay_1, InstantReplay_2, …\nStart OBS Replay Buffer before using the Save replay hotkey.", replayCallout);
         hint->setWordWrap(true);
         replayLayout->addWidget(hint, 11, 1, 1, 3);
-        statusLabel = new QLabel("Ready. Waiting for the Save and play hotkey.", replayCallout);
+        statusLabel = new QLabel("Ready. Save a clip, then use Play latest replay or enter the replay scene.", replayCallout);
         statusLabel->setWordWrap(true);
         statusLabel->setTextFormat(Qt::PlainText);
         statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         replayLayout->addWidget(statusLabel, 12, 1, 1, 3);
         replayCallout->setMinimumWidth(600);
+        autoSwitchCheck = new QCheckBox("Automatically switch to replay scene after saving", replayCallout);
+        autoSwitchCheck->setObjectName("autoSwitchCheck");
+        autoSwitchCheck->setChecked(false);
+        replayLayout->addWidget(autoSwitchCheck, 13, 1, 1, 3);
+        playButton = new QPushButton("Play latest replay", replayCallout);
+        replayLayout->addWidget(playButton, 14, 1, 1, 2);
         closeButton = new QDialogButtonBox(replayCallout);
 		closeButton->setObjectName(QStringLiteral("buttonBox"));
 		closeButton->setStandardButtons(QDialogButtonBox::Close);
-		replayLayout->addWidget(closeButton, 13, 3, 1, 1);
+		replayLayout->addWidget(closeButton, 14, 3, 1, 1);
 
 		retranslateUi(replayCallout);
 
