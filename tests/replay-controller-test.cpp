@@ -282,8 +282,13 @@ int main(int argc, char **argv) {
         c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PLAYING && mediaPosition == 2345);
         // Freeze must also suspend timed replay's automatic scene return.
         c.setSpeed(100); c.libraryPlayback = false; c.timer.start(5000);
-        c.togglePause(); assert(!c.timer.isActive() && c.frozenRemaining > 4900);
-        c.setSpeed(50); assert(c.frozenRemaining > 9800 && !c.timer.isActive());
+        // Qt's coarse timer rounds its deadline; compare with its actual
+        // remaining time instead of assuming precisely 5000 milliseconds.
+        const int beforeFreeze = c.timer.remainingTime();
+        c.togglePause();
+        const int frozen = c.frozenRemaining;
+        assert(!c.timer.isActive() && frozen > 0 && frozen <= beforeFreeze && frozen >= beforeFreeze - 100);
+        c.setSpeed(50); assert(c.frozenRemaining == frozen * 2 && !c.timer.isActive());
         c.togglePause(); assert(c.timer.isActive() && c.frozenRemaining == -1);
         c.phase = ReplayController::Saving;
         assert(c.playbackState() == 0); c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PLAYING);
