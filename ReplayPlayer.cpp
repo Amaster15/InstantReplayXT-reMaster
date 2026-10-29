@@ -4,6 +4,7 @@
 #include <QLibrary>
 #include <QSettings>
 #include <QFileInfo>
+#include <QDir>
 #include <algorithm>
 #include <mutex>
 #include <atomic>
@@ -121,6 +122,7 @@ struct Player {
     std::string path;
     int speed = 100;
     std::atomic<int> previousState{0};
+    std::atomic<bool> failed{false};
     uint64_t opens = 0;
     obs_source_frame frame{};
     int64_t clockOffset;
@@ -187,9 +189,10 @@ struct Player {
         speed = next; return true;
     }
     void start() {
-        if (path.empty()) return;
+        if (path.empty() || failed) return;
         vlc.libvlc_media_player_set_rate(player, float(speed) / 100.f);
         if (vlc.libvlc_media_player_play(player) != 0) {
+            failed = true;
             const auto *error = vlc.libvlc_errmsg();
             blog(LOG_WARNING, "[InstantReplayXT] VLC playback could not start: %s", error ? error : "unknown error");
         }
@@ -198,17 +201,24 @@ struct Player {
         std::lock_guard<std::mutex> guard(mutex);
         const std::string next = obs_data_get_string(settings, "local_file");
         const int percent = int(obs_data_get_int(settings, "speed_percent"));
-        if (path == next) { rate(percent); return; }
+        if (path == next && !failed) { rate(percent); return; }
         // Only a file change replaces the input. Live rate changes never stop,
         // seek, rebuild the decoder, or alter scene visibility.
         vlc.libvlc_media_player_stop(player);
         vlc.libvlc_media_player_set_media(player, nullptr);
-        path = next; previousState = 0;
+        path = next; previousState = 0; failed = false;
         obs_source_output_video(source, nullptr);
         if (!path.empty()) {
-            auto *media = vlc.libvlc_media_new_path(vlc.instance, path.c_str());
+            // libVLC 3 on Windows requires native backslashes even though Qt
+            // and OBS store forward-slash paths. Preserve UTF-8 for VLC.
+            const auto nativePath = QDir::toNativeSeparators(QString::fromUtf8(path.c_str())).toUtf8();
+            auto *media = vlc.libvlc_media_new_path(vlc.instance, nativePath.constData());
             if (media) {
                 vlc.libvlc_media_player_set_media(player, media); vlc.libvlc_media_release(media); ++opens;
+            } else {
+                failed = true;
+                const auto *error = vlc.libvlc_errmsg();
+                blog(LOG_WARNING, "[InstantReplayXT] VLC could not open the clip: %s", error ? error : "invalid media path");
             }
         }
         rate(percent);
@@ -235,6 +245,7 @@ static void *create(obs_data_t *settings, obs_source_t *source) {
 }
 static enum obs_media_state state(void *data) {
     auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex);
+    if (s->failed) return OBS_MEDIA_STATE_ERROR;
     // libvlc_state_t values in the stable VLC 3 ABI.
     switch (vlc.libvlc_media_player_get_state(s->player)) {
     case 1: return OBS_MEDIA_STATE_OPENING;
