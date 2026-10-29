@@ -7,7 +7,7 @@
 [Setup]
 AppId={{6D1D9A87-2C13-4BE8-A2B7-F0E2281C8935}
 AppName=Instant Replay XT for OBS
-AppVersion=2.0.5
+AppVersion=2.0.6
 AppPublisher=InstantReplayXT-reMaster contributors
 AppPublisherURL=https://github.com/Amaster15/InstantReplayXT-reMaster
 DefaultDirName={commonappdata}\obs-studio\plugins\InstantReplay
@@ -19,7 +19,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputDir}
-OutputBaseFilename=InstantReplayXT-2.0.5-obs31-windows-x64-setup
+OutputBaseFilename=InstantReplayXT-2.0.6-obs31-windows-x64-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -38,6 +38,8 @@ Source: "{#PackageDir}\InstantReplay\data\locale\en-US.ini"; DestDir: "{app}\dat
 Source: "{#PackageDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\build-info.json"; DestDir: "{app}"; Flags: ignoreversion
+
+Source: "{#PackageDir}\InstantReplay\data\updater\*"; DestDir: "{app}\data\updater"; Flags: ignoreversion
 
 [Code]
 function OBSRunning(): Boolean;

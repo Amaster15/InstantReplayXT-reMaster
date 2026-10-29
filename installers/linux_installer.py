@@ -75,7 +75,7 @@ def main():
         for name in files:
             (target / name).unlink(missing_ok=True)
         # Never remove unrecognized files or another plugin's data.
-        for folder in ('bin/64bit', 'bin', 'data/locale', 'data', ''):
+        for folder in ('bin/64bit', 'bin', 'data/locale', 'data/updater', 'data', ''):
             try:
                 (target / folder).rmdir()
             except (FileNotFoundError, OSError):
