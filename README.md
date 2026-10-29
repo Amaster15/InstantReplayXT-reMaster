@@ -5,8 +5,8 @@ based on commit `25807e749a3c4e8e1ad83790d323e3db3ff0718d`.
 Original authors: A Docile Sloth and spreadfire1. Original GPL license retained in LICENSE.
 
 **Target: Windows 10/11 x64 and Linux x86_64, OBS Studio 31.0.0 and later.**
-OBS 32 on Windows 10 is the primary user test target. This is a development port,
-not yet a release validated with live replay playback on both operating systems.
+OBS 32 on Windows 10 is the primary user test target; the user reported successful live testing of version 2.0.3.
+Linux has automated build, controller, settings and installer coverage; live playback validation on Linux is still pending.
 Compatibility with future OBS major versions must be rechecked; “31+” is not an unlimited guarantee.
 
 ## Current verification
@@ -19,7 +19,7 @@ Compatibility with future OBS major versions must be rechecked; “31+” is not
 | Build and tests with installed OBS 32.2.2 on Linux | Passed |
 | Compile/API check against OBS 33.0.0 headers | Passed |
 | Windows x64 native build | Passed on Windows Server 2022 with MSVC 19.44, Qt 6.6.3; DLL dependencies and exports verified |
-| Windows 10 + OBS 32 live replay | Pending |
+| Windows 10 + OBS 32 live use | User reported all tested 2.0.3 features working |
 | Ubuntu 24.04 baseline package build | Passed with Qt 6.4.2; controller and module lifecycle tests passed |
 
 Local tests use Qt 6.11.2. Those local binaries are **not portable OBS 31 release packages**:
@@ -107,8 +107,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.3-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.3-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.4-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.4-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -119,7 +119,7 @@ The GitHub Actions Windows job runs the same script. The initial Windows and Lin
 [GitHub Actions run 1](https://github.com/Amaster15/InstantReplayXT-reMaster/actions/runs/40807018374).
 Download the platform artifact from that run and extract its inner ZIP or tar.gz package.
 Both artifact and package SHA256 checksums were verified after download.
-Live replay playback in Windows 10/OBS 32 remains to be tested.
+The user reported successful live testing of the 2.0.3 features on Windows 10/OBS 32.
 
 ## Build a Linux baseline package
 
@@ -152,12 +152,14 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.3-obs31-windows-x64-setup.exe`.
-Accept the Windows administrator prompt. The installer chooses the standard location:
+Close OBS, then run `InstantReplayXT-2.0.4-obs31-windows-x64-setup.exe`.
+Accept the Windows administrator prompt. Setup includes a destination folder selector and remembers the previous install location for upgrades. The recommended default is:
 
 ```text
 C:\ProgramData\obs-studio\plugins\InstantReplay
 ```
+
+For a custom location, choose a dedicated folder ending in `InstantReplay` inside an OBS plugin search location you have configured. An arbitrary folder will not be discovered automatically. Uninstall before relocating an existing installation to avoid duplicate plugins. This setting controls the plugin files; choose video save folders inside OBS.
 
 Restart OBS and open **Tools → Instant Replay XT Settings**. Uninstall through Windows
 **Settings → Apps → Instant Replay XT for OBS**. OBS scenes, profiles and recordings
@@ -178,7 +180,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.3-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.4-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -187,11 +189,13 @@ spaces are supported. The installer verifies its payload checksum before modifyi
 Existing installations are backed up under the OBS configuration's `plugin-backups`
 directory, outside the plugin search path. Restart OBS after installation.
 
+To use a custom plugin folder, pass `--install-dir "/absolute/OBS-plugin-search-folder/InstantReplay"` when installing, upgrading, or uninstalling. The parent must be a location OBS searches; this does not configure OBS's search paths. Uninstall the default copy before relocating. The default needs no option.
+
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.3-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.3-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.4-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.4-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,
