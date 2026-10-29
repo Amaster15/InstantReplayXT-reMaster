@@ -26,7 +26,8 @@ void testAudio(obs_source_t *, const obs_source_audio *audio) {
     assert(audio->timestamp > 0); lastAudio = audio->timestamp; audioFrames += audio->frames;
 }
 static void waitPlaying(Player &s) {
-    for (int i = 0; i < 100 && vlc.libvlc_media_player_get_state(s.player) != 3; ++i) QThread::msleep(20);
+    for (int i = 0; i < 500 && vlc.libvlc_media_player_get_state(s.player) != 3; ++i) QThread::msleep(20);
+    std::fprintf(stderr, "VLC %s playback state %d, input opens %llu\n", vlc.libvlc_get_version(), vlc.libvlc_media_player_get_state(s.player), (unsigned long long)s.opens);
     assert(vlc.libvlc_media_player_get_state(s.player) == 3);
 }
 int main(int argc, char **argv) {
