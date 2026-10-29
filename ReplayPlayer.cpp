@@ -131,12 +131,34 @@ struct Player {
     bool shutdown = false, stepping = false, stepPaused = false;
     std::atomic<double> frameRate{30.0};
     std::atomic<bool> silentSteps{false};
+    double previewPosition = -1;
+    int64_t position() const {
+        return previewPosition >= 0 ? int64_t(previewPosition) : vlc.libvlc_media_player_get_time(player);
+    }
     std::chrono::steady_clock::time_point nextStep;
-    void stopSteps() { stepping = false; silentSteps = false; stepWake.notify_all(); }
+    void stopSteps() { stepping = false; silentSteps = false; previewPosition = -1; stepWake.notify_all(); }
     void pause(bool paused) {
         stepPaused = paused;
+        if (!paused && !stepping) previewPosition = -1;
         vlc.libvlc_media_player_set_pause(player, stepping || paused);
         nextStep = std::chrono::steady_clock::now(); stepWake.notify_all();
+    }
+    void seek(int64_t time) {
+        const bool paused = vlc.libvlc_media_player_get_state(player) == 4;
+        // VLC's paused input clock can report the earlier demux keyframe even
+        // after the requested picture is decoded. Track the preview position.
+        previewPosition = paused || stepping ? double(time) : -1;
+        vlc.libvlc_media_player_set_time(player, time);
+        // Refresh the decoded picture after a paused seek, rather than leave
+        // the preview at the demuxer's earlier keyframe position.
+        if (paused)
+            vlc.libvlc_media_player_next_frame(player);
+        if (stepping) {
+            const double seconds = 100.0 / (frameRate.load() * speed);
+            nextStep = std::chrono::steady_clock::now() +
+                std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(seconds));
+            stepWake.notify_all();
+        }
     }
     void stepLoop() {
         std::unique_lock<std::mutex> guard(mutex);
@@ -148,6 +170,7 @@ struct Player {
             const int current = vlc.libvlc_media_player_get_state(player);
             if (current == 3 || current == 4) {
                 vlc.libvlc_media_player_next_frame(player);
+                if (previewPosition >= 0) previewPosition += 1000.0 / frameRate.load();
                 const double seconds = 100.0 / (frameRate.load() * speed);
                 nextStep = std::chrono::steady_clock::now() +
                     std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(seconds));
@@ -239,12 +262,15 @@ struct Player {
             return true;
         }
         if (vlc.libvlc_media_player_set_rate(player, float(next) / 100.f) != 0) return false;
+        const double heldPreview = previewPosition;
         speed = next; stopSteps();
+        if (current == 4 && (!wasStepping || stepPaused)) previewPosition = heldPreview;
         if (wasStepping && !stepPaused) vlc.libvlc_media_player_set_pause(player, 0);
         return true;
     }
     void start() {
         if (path.empty() || failed) return;
+        previewPosition = -1;
         const int requested = speed;
         vlc.libvlc_media_player_set_rate(player, float(speed < 4 ? 100 : speed) / 100.f);
         if (vlc.libvlc_media_player_play(player) != 0) {
@@ -355,9 +381,9 @@ void replay_player_register() {
     };
     info.media_stop = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); s->stopSteps(); vlc.libvlc_media_player_stop(s->player); };
     info.media_get_state = state;
-    info.media_get_time = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); return vlc.libvlc_media_player_get_time(s->player); };
+    info.media_get_time = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); return s->position(); };
     info.media_get_duration = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); return vlc.libvlc_media_player_get_length(s->player); };
-    info.media_set_time = [](void *data, int64_t time) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); vlc.libvlc_media_player_set_time(s->player, time); };
+    info.media_set_time = [](void *data, int64_t time) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); s->seek(time); };
     info.video_tick = [](void *data, float) {
         auto *s = static_cast<Player *>(data);
         const auto current = state(data);

@@ -147,6 +147,8 @@ replayCallout::replayCallout(QWidget *parent)
     ui->library->changeSpeed = [](int percent) { replay_set_speed(percent); };
     ui->library->togglePause = [] { replay_toggle_pause(); };
     ui->library->playbackState = [] { return replay_playback_state(); };
+    ui->library->position = [] { return replay_position(); };
+    ui->library->seek = [](int64_t time, const std::string &clip) { return replay_seek(time, clip); };
     connect(ui->library->playbackMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
         if (property("loadingReplaySettings").toBool()) return;
         const bool useVlc = ui->library->usesVlc();

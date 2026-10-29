@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <vector>
 #include <memory>
+#include <climits>
 
 namespace {
 namespace fs = std::filesystem;
@@ -26,6 +27,7 @@ public:
     int speedPercent = 100, appliedSpeed = 100, speedTicks = 0, playbackTicks = 0;
     int64_t resumePosition = 0;
     int frozenRemaining = -1;
+    int64_t timedEndPosition = -1;
     bool resumePaused = false, speedUpdated = false, libraryPlayback = false;
     std::string selectedReplay;
     obs_source_t *speedSource = nullptr;
@@ -82,6 +84,7 @@ public:
     }
     void reset(bool returnToScene) {
         frozenRemaining = -1;
+        timedEndPosition = -1;
         timer.stop();
         playbackPoll.stop();
         finishSpeed();
@@ -119,6 +122,41 @@ public:
         const auto state = supportedReplaySource(source) ? obs_source_media_get_state(source) : OBS_MEDIA_STATE_NONE;
         obs_source_release(source);
         return state == OBS_MEDIA_STATE_PAUSED ? 2 : state == OBS_MEDIA_STATE_PLAYING ? 1 : 0;
+    }
+    ReplayPosition position() {
+        if (!playbackState()) return {};
+        auto *source = speedSource ? obs_source_get_ref(speedSource) : media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
+        if (!source) return {};
+        auto *settings = obs_source_get_settings(source);
+        ReplayPosition result;
+        result.position = speedSource ? resumePosition : std::max<int64_t>(0, obs_source_media_get_time(source));
+        result.duration = std::max<int64_t>(0, obs_source_media_get_duration(source));
+        result.clip = std::string(obs_source_get_name(source)) + "\n" + obs_data_get_string(settings, "local_file") + "\n" + std::to_string(generation);
+        obs_data_release(settings); obs_source_release(source);
+        return result;
+    }
+    bool seek(int64_t target, const std::string &clip) {
+        const auto current = position();
+        // Ignore a delayed drag if another clip/scene replaced its input.
+        if (current.duration <= 0 || current.clip != clip) return false;
+        target = std::clamp<int64_t>(target, 0, current.duration - 1);
+        auto *source = speedSource ? obs_source_get_ref(speedSource) : media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
+        if (!source) return false;
+        if (speedSource) resumePosition = target;
+        else obs_source_media_set_time(source, target);
+        obs_source_release(source);
+        if (!libraryPlayback && phase == Playing) {
+            const int remaining = frozenRemaining >= 0 ? frozenRemaining : timer.remainingTime();
+            if (remaining >= 0) {
+                // Cache the media endpoint: VLC applies seeks asynchronously,
+                // so repeated drag events may still report the old position.
+                if (timedEndPosition < 0) timedEndPosition = current.position + int64_t(remaining) * speedPercent / 100;
+                const auto adjusted = std::clamp<int64_t>((timedEndPosition - target) * 100 / speedPercent, 1, INT_MAX);
+                if (frozenRemaining >= 0) frozenRemaining = int(adjusted);
+                else timer.start(int(adjusted));
+            }
+        }
+        return true;
     }
     void togglePause() {
         const int state = playbackState();
@@ -484,6 +522,8 @@ void replay_play_clip(const std::string &path, bool switchScene) {
 }
 void replay_toggle_pause() { if (controller) controller->togglePause(); }
 int replay_playback_state() { return controller ? controller->playbackState() : 0; }
+ReplayPosition replay_position() { return controller ? controller->position() : ReplayPosition{}; }
+bool replay_seek(int64_t position, const std::string &clip) { return controller && controller->seek(position, clip); }
 void replay_set_speed(int percent) {
     if (controller) controller->setSpeed(percent);
 }

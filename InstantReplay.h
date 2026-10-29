@@ -8,6 +8,7 @@ spreadfire1 2018 (https://twitter.com/@spreadfire1)
 #include <obs-module.h>
 #include <obs-frontend-api.h>
 #include <string>
+#include "ReplayPosition.h"
 
 void replayStartup();
 void instant_replay_hotkey(void*, obs_hotkey_id, obs_hotkey_t*, bool);
@@ -41,6 +42,8 @@ void replay_play_clip(const std::string &path, bool switchScene);
 void replay_set_speed(int percent);
 void replay_toggle_pause();
 int replay_playback_state();
+ReplayPosition replay_position();
+bool replay_seek(int64_t position, const std::string &clip);
 std::string replay_current_file();
 
 bool replay_is_busy();

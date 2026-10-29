@@ -18,6 +18,8 @@
 #include <QComboBox>
 #include <functional>
 #include <algorithm>
+#include <QSignalBlocker>
+#include "ReplayPosition.h"
 
 class ClipPanel : public QWidget {
 public:
@@ -25,6 +27,40 @@ public:
     QCheckBox *switchScene;
     QSlider *speed;
     QPushButton *pauseButton;
+    QSlider *timeline;
+    QLabel *timelineTime;
+    QTimer *scrubTimer, *seekHold;
+    ReplayPosition timelinePosition;
+    std::function<ReplayPosition()> position;
+    std::function<bool(int64_t, const std::string &)> seek;
+    static QString formatTime(int64_t milliseconds) {
+        const auto seconds = std::max<int64_t>(0, milliseconds) / 1000;
+        return QString("%1:%2:%3").arg(seconds / 3600, 2, 10, QChar('0'))
+            .arg(seconds / 60 % 60, 2, 10, QChar('0')).arg(seconds % 60, 2, 10, QChar('0'));
+    }
+    void showPosition(int64_t time) {
+        timelineTime->setText(formatTime(time) + " / " + formatTime(timelinePosition.duration));
+    }
+    void scrub() {
+        scrubTimer->stop();
+        if (!seek || timelinePosition.duration <= 0) return;
+        const int64_t target = timelinePosition.duration * timeline->value() / 10000;
+        if (seek(target, timelinePosition.clip)) seekHold->start(400);
+        else { seekHold->stop(); refreshTimeline(); }
+    }
+    void refreshTimeline() {
+        const auto next = position ? position() : ReplayPosition{};
+        const bool changed = next.clip != timelinePosition.clip;
+        if (changed) { scrubTimer->stop(); seekHold->stop(); }
+        timelinePosition = next;
+        const bool valid = next.duration > 0 && !next.clip.empty();
+        timeline->setEnabled(valid);
+        if (!changed && valid && (timeline->isSliderDown() || scrubTimer->isActive() || seekHold->isActive())) return;
+        const QSignalBlocker blocker(timeline);
+        if (changed) timeline->setSliderDown(false);
+        timeline->setValue(valid ? int(std::clamp<int64_t>(next.position, 0, next.duration) * 10000 / next.duration) : 0);
+        showPosition(next.position);
+    }
     QComboBox *playbackMode;
     bool usesVlc() const { return playbackMode->currentData().toInt() == 1; }
     void setUseVlc(bool vlc) { playbackMode->setCurrentIndex(playbackMode->findData(vlc ? 1 : 0)); }
@@ -108,6 +144,23 @@ public:
         auto *pausePoll = new QTimer(this); pausePoll->setInterval(250);
         connect(pausePoll, &QTimer::timeout, this, [this] { if (isVisible()) refreshPause(); });
         pausePoll->start(); refreshPause();
+        auto *timelineRow = new QHBoxLayout; layout->addLayout(timelineRow);
+        timelineRow->addWidget(new QLabel("Clip position", this));
+        timeline = new QSlider(Qt::Horizontal, this); timeline->setRange(0, 10000);
+        timeline->setAccessibleName("Scrub replay backward or forward");
+        timeline->setToolTip("Drag to move backward or forward in the clip. Paused clips stay paused.");
+        timelineRow->addWidget(timeline, 1);
+        timelineTime = new QLabel(this); timelineRow->addWidget(timelineTime);
+        scrubTimer = new QTimer(this); scrubTimer->setSingleShot(true);
+        seekHold = new QTimer(this); seekHold->setSingleShot(true);
+        connect(timeline, &QSlider::valueChanged, this, [this](int value) {
+            showPosition(timelinePosition.duration * value / 10000);
+            if (!scrubTimer->isActive()) scrubTimer->start(100);
+        });
+        connect(scrubTimer, &QTimer::timeout, this, [this] { scrub(); });
+        connect(timeline, &QSlider::sliderReleased, this, [this] { scrub(); });
+        connect(pausePoll, &QTimer::timeout, this, [this] { if (isVisible()) refreshTimeline(); });
+        refreshTimeline();
         modeHint = new QLabel(this); modeHint->setWordWrap(true); layout->addWidget(modeHint);
         auto updateHint = [this] {
             modeHint->setText(!usesVlc()
@@ -137,6 +190,7 @@ public:
     void playClip(const QString &path, bool changeScene) {
         if (path.isEmpty()) { status->setText("Select a clip first."); return; }
         if (!QFileInfo::exists(path)) { status->setText("This clip has moved or been deleted. Refresh the list."); return; }
+        scrubTimer->stop(); seekHold->stop();
         if (changeSpeed) changeSpeed(speed->value());
         if (play) play(path, changeScene);
         refreshPause();
