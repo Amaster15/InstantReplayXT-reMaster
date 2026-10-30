@@ -19,6 +19,8 @@ public:
     void requestSettingsSave();
     void saveSettings();
     bool saveConfig();
+    Q_INVOKABLE bool exportConfig(const QString &filename);
+    Q_INVOKABLE bool importConfig(const QString &filename);
     QString configCollection;
     bool configReady = false;
     QTimer *settingsSaveTimer = nullptr;

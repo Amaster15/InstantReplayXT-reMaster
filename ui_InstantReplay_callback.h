@@ -83,6 +83,12 @@ public:
         saveNote->setObjectName("settingsSaveStatus"); saveNote->setWordWrap(true); saveRow->addWidget(saveNote, 1);
         auto *saveSettings = new QPushButton("Save settings", replayCallout);
         saveSettings->setObjectName("saveSettingsButton"); saveRow->addWidget(saveSettings);
+        auto *exportConfig = new QPushButton("Export config…", replayCallout);
+        exportConfig->setObjectName("exportConfigButton"); saveRow->addWidget(exportConfig);
+        auto *importConfig = new QPushButton("Import config…", replayCallout);
+        importConfig->setObjectName("importConfigButton"); saveRow->addWidget(importConfig);
+        exportConfig->setToolTip("Export this collection's plugin settings and match folders. Clips, OBS scenes and hotkeys are not included.");
+        importConfig->setToolTip("Replace this collection's plugin settings from an exported config. Review paths and scene/source names after transferring computers.");
         outer->addLayout(saveRow);
         updates = new UpdatePanel;
         tabs->addTab(updates, "Updates");
@@ -222,7 +228,7 @@ public:
 
 	void retranslateUi(QDialog *replayCallout)
 	{
-		replayCallout->setWindowTitle("Instant Replay XT 2.0.19");
+		replayCallout->setWindowTitle("Instant Replay XT 2.0.20");
 		enableLabel->setText(QApplication::translate("replayCallout", "Enable", Q_NULLPTR));
 		waitLabel->setText(QApplication::translate("replayCallout", "WritePause", Q_NULLPTR));
 		pauseLabel->setText(QApplication::translate("replayCallout", "TransitionPause", Q_NULLPTR));

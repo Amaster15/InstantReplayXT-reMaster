@@ -2,6 +2,7 @@
 #include "InstantReplay.h"
 #include "ReplayMode.h"
 #include "SettingsStore.h"
+#include "ConfigTransfer.h"
 #include <obs-frontend-api.h>
 #include <obs-module.h>
 #include <QtWidgets/QMainWindow>
@@ -123,6 +124,21 @@ replayCallout::replayCallout(QWidget *parent)
         connect(choice, qOverload<int>(&QComboBox::currentIndexChanged), this, &replayCallout::requestSettingsSave);
     connect(ui->sceneLineEdit, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] { ui->replaySourceNameEdit->refresh(); });
     connect(ui->library->speed, &QSlider::valueChanged, this, &replayCallout::requestSettingsSave);
+    connect(findChild<QPushButton *>("exportConfigButton"), &QPushButton::clicked, this, [this] {
+        QFileDialog dialog(this, "Export plugin config", "InstantReplayXT-config.json", "JSON config (*.json)");
+        dialog.setAcceptMode(QFileDialog::AcceptSave); dialog.setDefaultSuffix("json");
+        if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty()) return;
+        exportConfig(dialog.selectedFiles().front());
+    });
+    connect(findChild<QPushButton *>("importConfigButton"), &QPushButton::clicked, this, [this] {
+        const auto path = QFileDialog::getOpenFileName(this, "Import plugin config", {}, "JSON config (*.json)");
+        if (path.isEmpty()) return;
+        if (QMessageBox::question(this, "Import plugin config",
+            "Replace the plugin settings for this scene collection? Current settings will be backed up. "
+            "Replay playback will stop. Clips, OBS scenes and hotkeys are not imported. "
+            "Review folder paths and scene/source names on this computer.", QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No) == QMessageBox::Yes) importConfig(path);
+    });
     ui->matches->settingsChanged = [this] { requestSettingsSave(); };
     connect(findChild<QPushButton *>("saveSettingsButton"), &QPushButton::clicked, this, [this] {
         saveSettings();
@@ -213,6 +229,36 @@ bool replayCallout::saveConfig()
     label->setToolTip(path);
     if (!ok) blog(LOG_WARNING, "[InstantReplayXT] %s", qPrintable(error));
     return ok;
+}
+
+bool replayCallout::exportConfig(const QString &filename)
+{
+    auto *label = findChild<QLabel *>("settingsSaveStatus");
+    if (!configReady) { label->setText("Wait for OBS to finish loading the scene collection."); return false; }
+    auto *snapshot = obs_data_create(); save_replay_callout(snapshot, true, nullptr);
+    const auto json = QJsonDocument::fromJson(QByteArray(obs_data_get_json(snapshot))).object();
+    obs_data_release(snapshot);
+    QString error; const bool ok = ConfigTransfer::write(filename, json, error);
+    label->setText(ok ? "Config exported. Video clips and OBS scenes/hotkeys are not included." : error);
+    return ok;
+}
+
+bool replayCallout::importConfig(const QString &filename)
+{
+    auto *label = findChild<QLabel *>("settingsSaveStatus");
+    if (!configReady) { label->setText("Wait for OBS to finish loading the scene collection."); return false; }
+    QJsonObject json; QString error;
+    if (!ConfigTransfer::read(filename, json, error)) { label->setText(error); return false; }
+    if (!replay_prepare_player_change()) { label->setText("A replay is being saved. Import after the save finishes."); return false; }
+    // Write before applying so a storage failure cannot replace live settings.
+    if (!saveConfig()) return false;
+    if (!SettingsStore(property("irxtConfigPath").toString()).save(configCollection, json, error)) {
+        label->setText(error); return false;
+    }
+    auto *snapshot = obs_data_create(); save_replay_callout(snapshot, false, nullptr); obs_data_release(snapshot);
+    ui->library->refreshClips(); obs_frontend_save();
+    label->setText("Config imported and saved. Review folder paths and scene/source names for this computer.");
+    return true;
 }
 
 void replayCallout::saveSettings()

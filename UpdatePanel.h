@@ -100,7 +100,7 @@ public:
 #else
         Q_UNUSED(maximumBytes);
         QNetworkRequest request(url);
-        request.setRawHeader("User-Agent", "InstantReplayXT/2.0.19");
+        request.setRawHeader("User-Agent", "InstantReplayXT/2.0.20");
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
         request.setTransferTimeout(30000);
         return network.get(request);
