@@ -45,7 +45,11 @@ int main(int argc, char **argv) {
             assert(result.error.empty() && result.warning.empty());
             assert(!QFile::exists(input));
             const auto output = QString::fromUtf8(result.path.c_str());
-            assert(output == temp.filePath("InstantReplay." + extension)); // Never publish inside the temporary directory.
+            // std::filesystem uses native separators on Windows; compare actual
+            // files while still rejecting publication inside the trim directory.
+            const auto expectedOutput = QFileInfo(temp.filePath("InstantReplay." + extension));
+            assert(expectedOutput.exists());
+            assert(QFileInfo(output).canonicalFilePath() == expectedOutput.canonicalFilePath());
             const auto after = probe(inspector, output);
             assert(after["streams"].toArray().size() == 3);
             const auto duration = after["format"].toObject()["duration"].toString().toDouble();
