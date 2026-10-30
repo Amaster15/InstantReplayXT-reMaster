@@ -29,6 +29,16 @@ static std::vector<std::pair<obs_frontend_save_cb, void *>> saveCallbacks;
 static obs_data_t *savedData;
 static const char *collectionName = "Test collection";
 static ObsChoice *choice(const char *name) { return static_cast<ObsChoice *>(window->findChild<QComboBox *>(name)); }
+static obs_hotkey_id clipKey(int preset) {
+    struct Search { std::string name; obs_hotkey_id id = OBS_INVALID_HOTKEY_ID; } search;
+    search.name = "Instant Replay Clip " + std::to_string(preset);
+    obs_enum_hotkeys([](void *data, obs_hotkey_id id, obs_hotkey_t *key) {
+        auto &s = *static_cast<Search *>(data);
+        if (s.name == obs_hotkey_get_name(key)) s.id = id;
+        return true;
+    }, &search);
+    assert(search.id != OBS_INVALID_HOTKEY_ID); return search.id;
+}
 static void loadSettings(obs_data_t *data) {
     for (auto it = saveCallbacks.rbegin(); it != saveCallbacks.rend(); ++it) it->first(data, false, it->second);
 }
@@ -82,10 +92,20 @@ int main(int argc, char **argv) {
             auto *restored = obs_data_create_from_json_file(path.constData()); assert(restored);
             int before = saveRequests;
             loadSettings(restored); obs_data_release(restored);
+            for (int i = 1; i <= 3; ++i) {
+                auto *bindings = obs_hotkey_save(clipKey(i));
+                assert(obs_data_array_count(bindings) == 1);
+                auto *binding = obs_data_array_item(bindings, 0);
+                assert(std::string(obs_data_get_string(binding, "key")) == "OBS_KEY_F" + std::to_string(i));
+                obs_data_release(binding); obs_data_array_release(bindings);
+            }
             assert(choice("sceneLineEdit")->text() == "Saved replay scene");
             assert(choice("replaySourceNameEdit")->text() == "Saved media source");
             assert(window->findChild<QCheckBox *>("enableCheck")->isChecked());
             assert(window->findChild<QSpinBox *>("waitSpinBox")->value() == 7);
+            assert(window->findChild<QSpinBox *>("clipSeconds1")->value() == 12);
+            assert(window->findChild<QSpinBox *>("clipSeconds2")->value() == 45);
+            assert(window->findChild<QSpinBox *>("clipSeconds3")->value() == 90);
             QEventLoop loop; QTimer::singleShot(650, &loop, &QEventLoop::quit); loop.exec();
             assert(saveRequests == before); // Loading must not queue an autosave.
             collectionName = "Other collection";
@@ -110,9 +130,23 @@ int main(int argc, char **argv) {
             collectionName = "Test collection";
             empty = obs_data_create(); loadSettings(empty); obs_data_release(empty);
             QCoreApplication::processEvents();
+            obs_source_remove(obs_scene_get_source(recoveryScene));
             obs_source_release(recoverySource); obs_scene_release(recoveryScene);
         }
         if (!parentFirst) {
+            for (int i = 1; i <= 3; ++i) {
+                const auto json = "[{\"key\":\"OBS_KEY_F" + std::to_string(i) + "\"}]";
+                auto *holder = obs_data_create_from_json(("{\"keys\":" + json + "}").c_str());
+                auto *bindings = obs_data_get_array(holder, "keys");
+                obs_hotkey_load(clipKey(i), bindings);
+                obs_data_array_release(bindings); obs_data_release(holder);
+            }
+            assert(window->findChild<QSpinBox *>("clipSeconds1")->value() == 15);
+            assert(window->findChild<QSpinBox *>("clipSeconds2")->value() == 30);
+            assert(window->findChild<QSpinBox *>("clipSeconds3")->value() == 60);
+            window->findChild<QSpinBox *>("clipSeconds1")->setValue(12);
+            window->findChild<QSpinBox *>("clipSeconds2")->setValue(45);
+            window->findChild<QSpinBox *>("clipSeconds3")->setValue(90);
             QComboBox *mode = nullptr;
             for (auto *combo : window->findChildren<QComboBox *>())
                 if (combo->accessibleName() == "Replay player mode") mode = combo;
@@ -172,9 +206,13 @@ int main(int argc, char **argv) {
             assert(QMetaObject::invokeMethod(dialog, "exportConfig", Qt::DirectConnection,
                 Q_RETURN_ARG(bool, transferred), Q_ARG(QString, portable)) && transferred);
             window->findChild<QSpinBox *>("waitSpinBox")->setValue(11);
+            window->findChild<QSpinBox *>("clipSeconds2")->setValue(300);
             assert(QMetaObject::invokeMethod(dialog, "importConfig", Qt::DirectConnection,
                 Q_RETURN_ARG(bool, transferred), Q_ARG(QString, portable)) && transferred);
             assert(window->findChild<QSpinBox *>("waitSpinBox")->value() == 7);
+            assert(window->findChild<QSpinBox *>("clipSeconds1")->value() == 12);
+            assert(window->findChild<QSpinBox *>("clipSeconds2")->value() == 45);
+            assert(window->findChild<QSpinBox *>("clipSeconds3")->value() == 90);
             const auto configPath = savedDir.filePath("config/settings.json");
             assert(SettingsStore(configPath).load("Test collection")["replayCallout_data"].toObject()["wait"] == 7);
             assert(SettingsStore(configPath + ".bak").load("Test collection")["replayCallout_data"].toObject()["wait"] == 11);
@@ -182,12 +220,19 @@ int main(int argc, char **argv) {
             assert(QMetaObject::invokeMethod(dialog, "importConfig", Qt::DirectConnection,
                 Q_RETURN_ARG(bool, transferred), Q_ARG(QString, portable)) && !transferred);
             assert(window->findChild<QSpinBox *>("waitSpinBox")->value() == 7);
+            assert(window->findChild<QSpinBox *>("clipSeconds1")->value() == 12);
+            assert(window->findChild<QSpinBox *>("clipSeconds2")->value() == 45);
+            assert(window->findChild<QSpinBox *>("clipSeconds3")->value() == 90);
             // Simulate OBS crashing before its own scene-collection file catches up.
             data = obs_data_get_obj(savedData, "replayCallout_data");
             obs_data_set_string(data, "scene", "Stale OBS scene"); obs_data_release(data);
             assert(obs_data_save_json(savedData, savedDir.filePath("settings.json").toUtf8().constData()));
+            obs_source_remove(obs_scene_get_source(scene));
             obs_source_release(vlc); obs_source_release(source); obs_scene_release(scene);
         }
+        // Mirror OBS teardown: finish destroying released test scenes/sources
+        // before unloading the module whose source callbacks they still use.
+        obs_queue_task(OBS_TASK_DESTROY, [](void *) {}, nullptr, true);
         if (parentFirst) { delete window; window = nullptr; }
         unload();
         assert(events == 0 && saves == 0);
@@ -216,6 +261,11 @@ int main(int argc, char **argv) {
     assert(ConfigTransfer::write(portable, malformed, error));
     assert(!ConfigTransfer::read(portable, imported, error) && imported == payload);
     assert(!ConfigTransfer::write(savedDir.path(), payload, error));
+    for (const QJsonValue value : {QJsonValue(0), QJsonValue(3601), QJsonValue(1.5), QJsonValue("15")}) {
+        malformed["replayCallout_data"] = QJsonObject{{"clipSeconds1", value}};
+        assert(ConfigTransfer::write(portable, malformed, error));
+        assert(!ConfigTransfer::read(portable, imported, error));
+    }
     QFile future(portable); assert(future.open(QIODevice::WriteOnly));
     future.write(QJsonDocument(QJsonObject{{"format", "InstantReplayXT-config"}, {"version", 2}, {"settings", payload}}).toJson()); future.close();
     assert(!ConfigTransfer::read(portable, imported, error) && imported == payload);
