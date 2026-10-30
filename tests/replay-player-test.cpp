@@ -117,8 +117,14 @@ int main(int argc, char **argv) {
         // Scrubbing a freeze frame must update its picture in both directions
         // while keeping the same paused input, including at 1% speed.
         { std::lock_guard<std::mutex> guard(s.mutex); s.pause(true); }
-        for (int64_t target : {10000, 2000}) {
+        for (int64_t target : {10000, 2000, 10000, 2000}) {
             const auto oldFrames = uniqueFrames.load();
+            // Simulate dragging across several obsolete positions. Only the
+            // final requested picture should remain, with no frame-step backlog.
+            for (int n = 0; n < 12; ++n) {
+                { std::lock_guard<std::mutex> guard(s.mutex); s.seek(target == 2000 ? 14000 - n * 900 : 1000 + n * 600); }
+                QThread::msleep(10);
+            }
             { std::lock_guard<std::mutex> guard(s.mutex); s.seek(target); }
             const auto &reference = target == 10000 ? seekTenSeconds : seekTwoSeconds;
             float error = 1000;
