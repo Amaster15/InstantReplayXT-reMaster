@@ -43,6 +43,11 @@ public:
             const auto v = obj[key]; const auto n = v.toDouble();
             if (!v.isDouble() || !std::isfinite(n) || std::floor(n) != n || n < -1 || n > 2147483647) return invalid();
         }
+        for (const auto *key : {"clipSeconds1", "clipSeconds2", "clipSeconds3"}) {
+            if (!obj.contains(key)) continue;
+            const auto v = obj[key]; const auto n = v.toDouble();
+            if (!v.isDouble() || !std::isfinite(n) || std::floor(n) != n || n < 1 || n > 3600) return invalid();
+        }
         if (obj.contains("matches")) {
             if (!obj["matches"].isArray() || obj["matches"].toArray().size() > 1000) return invalid();
             for (const auto &row : obj["matches"].toArray()) {

@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
     info.update = [](void *, obs_data_t *) {};
     obs_register_source(&info);
     auto *initial = obs_data_create(); obs_data_set_bool(initial, "loop", true);
-    auto *vlc = obs_source_create("vlc_source", "BRB clips", initial, nullptr);
+    auto *vlc = obs_source_create("vlc_source", "playlist clips", initial, nullptr);
     obs_data_release(initial);
     QTemporaryDir temp; assert(temp.isValid());
     QString first = temp.path() + "/Match 1 — Team A", second = temp.path() + "/Match 2 — Team B";
@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
         panel.selectNext(panel.active); assert(panel.active == 2 && panel.activePath() == second);
         panel.folders->selectRow(2); panel.move(-1);
         assert(panel.active == 1 && panel.activePath() == second); // Reordering retains active match.
-        panel.vlcName->setText("BRB clips");
+        panel.vlcName->setText("playlist clips");
         panel.refreshVlc(true);
         auto *settings = obs_source_get_settings(vlc);
         assert(obs_data_get_bool(settings, "loop"));
@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
         MatchPanel restored; restored.load(saved); obs_data_release(saved);
         assert(restored.activePath() == second && restored.folders->rowCount() == 3);
         assert(!restored.usable(2));
-        assert(restored.vlcName->text() == "BRB clips");
+        assert(restored.vlcName->text() == "playlist clips");
         // A live/preview source defers automatic refresh until it is no longer showing.
         obs_source_inc_showing(vlc);
         panel.active = 0; panel.autoRefresh->setChecked(true);

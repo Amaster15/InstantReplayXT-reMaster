@@ -54,7 +54,7 @@ def main():
     files = {}
     with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
         for item in archive.getmembers():
-            if item.name in ('LICENSE', 'README.md', 'build-info.json'):
+            if item.name in ('LICENSE', 'README.md', 'SETUP.md', 'BUILDING.md', 'HISTORY.md', 'build-info.json', 'images/buy-me-a-coffee-qr.png'):
                 name = item.name
             elif item.name.startswith('InstantReplay/'):
                 name = item.name[len('InstantReplay/'):]
@@ -75,7 +75,7 @@ def main():
         for name in files:
             (target / name).unlink(missing_ok=True)
         # Never remove unrecognized files or another plugin's data.
-        for folder in ('bin/64bit', 'bin', 'data/locale', 'data/updater', 'data', ''):
+        for folder in ('bin/64bit', 'bin', 'data/locale', 'data/updater', 'data/trimmer', 'data', 'images', ''):
             try:
                 (target / folder).rmdir()
             except (FileNotFoundError, OSError):
@@ -90,7 +90,7 @@ def main():
             path = stage / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-            path.chmod(0o644)
+            path.chmod(0o755 if name == 'data/trimmer/ffmpeg' else 0o644)
         if target.exists():
             backup_root = obs_config / 'plugin-backups'
             backup_root.mkdir(parents=True, exist_ok=True)
@@ -108,6 +108,7 @@ def main():
     if backup:
         print('Previous installation backed up to: ' + str(backup))
     print('Installed. Restart OBS and open Tools > Instant Replay XT Settings.')
+    print('Setup guide: ' + str(target / 'SETUP.md'))
     print('For native OBS installations; this package is not a Flatpak runtime build.')
 
 

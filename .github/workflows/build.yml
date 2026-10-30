@@ -13,6 +13,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-python
+      - name: Build bundled clip trimmer
+        shell: msys2 {0}
+        run: python scripts/build_trimmer.py
       - name: Install VLC for live playback tests
         shell: pwsh
         run: |

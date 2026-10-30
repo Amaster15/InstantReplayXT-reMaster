@@ -18,6 +18,10 @@ static std::string backupDir;
 static std::string replayPath;
 bool replay_ensure_player() { return true; }
 bool get_enabled() { return enabled; }
+static int clipLengths[] = {15, 30, 60};
+static std::string trimmerPath;
+int get_clip_seconds(int preset) { return clipLengths[preset]; }
+std::string get_replay_trimmer() { return trimmerPath; }
 int get_wait() { return 1000; }
 int get_pause() { return 300; }
 int get_replay() { return 100; } // Shorter than two transitions: must not underflow.
@@ -83,6 +87,27 @@ int main(int argc, char **argv) {
         assert(c.phase == ReplayController::Saving && saveRequests == 1);
         c.start(); assert(saveRequests == 1); // repeated trigger ignored
         c.advance(); assert(c.phase == ReplayController::Idle); // save timeout
+        // Each key reads its configurable duration; releases/repeated presses do not save.
+        controller = &c;
+        trimmerPath = QCoreApplication::applicationFilePath().toStdString(); // Executable only; no trim in these routing checks.
+        for (int i = 0; i < 3; ++i) {
+            const int before = saveRequests;
+            clipHotkey(&clipPresets[i], OBS_INVALID_HOTKEY_ID, nullptr, false);
+            QCoreApplication::processEvents(); assert(saveRequests == before);
+            clipHotkey(&clipPresets[i], OBS_INVALID_HOTKEY_ID, nullptr, true);
+            QCoreApplication::processEvents();
+            assert(saveRequests == before + 1 && c.clipSeconds == clipLengths[i]);
+            c.start(99); assert(c.clipSeconds == clipLengths[i]);
+            c.reset(false);
+        }
+        clipLengths[1] = 45;
+        clipHotkey(&clipPresets[1], OBS_INVALID_HOTKEY_ID, nullptr, true);
+        QCoreApplication::processEvents(); assert(c.clipSeconds == 45); c.reset(false);
+        trimmerPath.clear();
+        const int missingBefore = saveRequests;
+        c.start(15); assert(c.phase == ReplayController::Idle && saveRequests == missingBefore);
+        assert(status.find("helper is missing") != std::string::npos);
+        controller = nullptr;
         c.start(); finishSave(c); assert(c.phase == ReplayController::TransitionIn);
         assert(currentScene == obs_scene_get_source(replayScene));
         c.advance(); assert(obs_source_muted(audio));
