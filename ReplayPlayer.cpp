@@ -149,10 +149,8 @@ struct Player {
         // after the requested picture is decoded. Track the preview position.
         previewPosition = paused || stepping ? double(time) : -1;
         vlc.libvlc_media_player_set_time(player, time);
-        // Refresh the decoded picture after a paused seek, rather than leave
-        // the preview at the demuxer's earlier keyframe position.
-        if (paused)
-            vlc.libvlc_media_player_next_frame(player);
+        // A paused seek decodes its own preview. Keep seek commands adjacent
+        // so VLC can discard obsolete positions while the user drags.
         if (stepping) {
             const double seconds = 100.0 / (frameRate.load() * speed);
             nextStep = std::chrono::steady_clock::now() +
