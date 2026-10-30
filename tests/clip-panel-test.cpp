@@ -54,8 +54,9 @@ int main(int argc, char **argv) {
     panel.reverseButton->click(); assert(playDirection == 1 && panel.reverseButton->text() == "Forward" && playback == 1);
     playback = 2; panel.reverseButton->click(); assert(playDirection == 0 && playback == 2 && directionChanges == 2);
     playDirection = -1; panel.refreshPause(); assert(!panel.reverseButton->isEnabled());
-    assert(panel.speed->minimum() == 1 && panel.speed->maximum() == 200);
-    for (int percent : {1, 25, 50, 75, 100}) {
+    assert(panel.speed->minimum() == 10 && panel.speed->maximum() == 200);
+    panel.speed->setValue(1); assert(panel.speed->value() == 10); // migrate old saved speeds
+    for (int percent : {10, 25, 50, 75, 100}) {
         bool found = false;
         for (auto *button : panel.findChildren<QPushButton *>()) if (button->text() == QString::number(percent) + "%") {
             button->click(); assert(panel.speed->value() == percent); found = true;

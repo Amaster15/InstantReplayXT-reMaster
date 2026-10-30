@@ -282,7 +282,7 @@ int main(int argc, char **argv) {
         c.libraryPlayback = true; mediaPosition = 2345;
         const auto before = liveUpdates;
         c.setSpeed(50); assert(liveRate == 50 && liveUpdates == before && mediaPosition == 2345 && !c.speedSource);
-        c.setSpeed(1); assert(liveRate == 1 && liveUpdates == before && mediaPosition == 2345 && !c.speedSource);
+        c.setSpeed(1); assert(liveRate == 10 && liveUpdates == before && mediaPosition == 2345 && !c.speedSource);
         c.setSpeed(175); assert(liveRate == 175 && liveUpdates == before && mediaPosition == 2345);
         mediaState = OBS_MEDIA_STATE_PLAYING;
         c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PAUSED && c.playbackState() == 2);

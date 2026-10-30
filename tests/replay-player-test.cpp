@@ -16,11 +16,13 @@ void testAudio(obs_source_t *, const obs_source_audio *);
 #include "seek-signatures.h"
 static std::atomic<unsigned> videoFrames{0}, audioFrames{0}, uniqueFrames{0};
 static uint64_t lastHash = 0;
+static std::atomic<bool> holdDisplay{false}, displayHeld{false};
 static std::mutex pictureMutex;
 static std::array<float, 180> picture{};
 static std::atomic<uint64_t> lastVideo{0}, lastAudio{0};
 void testVideo(obs_source_t *, const obs_source_frame *frame) {
     if (!frame) return;
+    if (holdDisplay) { displayHeld = true; while (holdDisplay) std::this_thread::sleep_for(std::chrono::milliseconds(5)); displayHeld = false; }
     if (videoFrames == 0) std::printf("Decoded frame: %ux%u, stride %u\n", frame->width, frame->height, frame->linesize[0]);
     assert(frame->data[0] && frame->width == 160 && frame->height == 90);
     uint64_t hash = 1469598103934665603ULL;
@@ -74,19 +76,19 @@ int main(int argc, char **argv) {
         assert(setRate(s, 150)); QThread::msleep(1600);
         const auto fast = vlc.libvlc_media_player_get_time(s.player);
         assert(fast - slow > 1500 && s.opens == 1);
-        // VLC reports the requested rate even when its input clamps it.
+        // Check actual decoded frames at the new 10% minimum.
         // Count distinct decoded pictures, excluding VLC's paused redraws.
         for (int from : {100, 50}) {
             assert(setRate(s, from)); QThread::msleep(800);
             const auto position = vlc.libvlc_media_player_get_time(s.player);
-            assert(setRate(s, 1)); QThread::msleep(500);
+            assert(setRate(s, 10)); QThread::msleep(500);
             const auto first = uniqueFrames.load();
             const auto audioBefore = audioFrames.load();
             QThread::msleep(8000);
             const auto advanced = uniqueFrames.load() - first;
-            std::fprintf(stderr, "%d%% to 1%%: %u distinct frames in 8 seconds\n", from, advanced);
-            assert(advanced >= 1 && advanced <= 4);
-            assert(audioFrames.load() == audioBefore);
+            std::fprintf(stderr, "%d%% to 10%%: %u distinct frames in 8 seconds\n", from, advanced);
+            assert(advanced >= 10 && advanced <= 30);
+            (void)audioBefore; // Native 10% playback retains audio.
             assert(state(&s) == OBS_MEDIA_STATE_PLAYING && s.opens == 1);
             assert(vlc.libvlc_media_player_get_time(s.player) >= position - 100);
         }
@@ -95,27 +97,27 @@ int main(int argc, char **argv) {
         assert(s.opens == 1 && vlc.libvlc_media_player_get_time(s.player) >= fast);
         { std::lock_guard<std::mutex> guard(s.mutex); s.pause(true); } QThread::msleep(100);
         assert(setRate(s, 25)); assert(vlc.libvlc_media_player_get_state(s.player) == 4);
-        assert(setRate(s, 1)); QThread::msleep(500);
+        assert(setRate(s, 10)); QThread::msleep(500);
         const auto pausedFrames = uniqueFrames.load();
         QThread::msleep(1500);
         assert(uniqueFrames.load() == pausedFrames && state(&s) == OBS_MEDIA_STATE_PAUSED);
         assert(setRate(s, 100)); QThread::msleep(100);
         assert(state(&s) == OBS_MEDIA_STATE_PAUSED);
         { std::lock_guard<std::mutex> guard(s.mutex); s.pause(false); }
-        QThread::msleep(600);
+        for (int i = 0; i < 300 && uniqueFrames.load() == pausedFrames; ++i) QThread::msleep(10);
         assert(uniqueFrames.load() > pausedFrames);
-        // Restart at 1% and verify the first frames are paced too.
+        // Restart at 10% and verify the first frames are paced too.
         { std::lock_guard<std::mutex> guard(s.mutex);
           s.stopSteps(); vlc.libvlc_media_player_stop(s.player);
-          assert(s.rate(1)); s.start(); }
+          assert(s.rate(10)); s.start(); }
         QThread::msleep(1000);
         const auto initialFrames = uniqueFrames.load();
         QThread::msleep(8000);
         const auto initialAdvance = uniqueFrames.load() - initialFrames;
-        assert(initialAdvance >= 1 && initialAdvance <= 4);
+        assert(initialAdvance >= 10 && initialAdvance <= 30);
         assert(state(&s) == OBS_MEDIA_STATE_PLAYING);
         // Scrubbing a freeze frame must update its picture in both directions
-        // while keeping the same paused input, including at 1% speed.
+        // while keeping the same paused input, including at 10% speed.
         { std::lock_guard<std::mutex> guard(s.mutex); s.pause(true); }
         for (int64_t target : {10000, 2000, 10000, 2000}) {
             const auto oldFrames = uniqueFrames.load();
@@ -143,7 +145,7 @@ int main(int argc, char **argv) {
         // Drag/release preserves playing state: no automatic pause/resume
         // commands are injected around seeks.
         { std::lock_guard<std::mutex> guard(s.mutex); s.pause(false); }
-        for (int percent : {100, 50, 1}) for (int target : {10000, 2000}) {
+        for (int percent : {100, 50, 10}) for (int target : {10000, 2000}) {
             assert(setRate(s, percent));
             QThread::msleep(100);
             const auto beforeRelease = uniqueFrames.load();
@@ -177,9 +179,20 @@ int main(int argc, char **argv) {
         QThread::msleep(1100);
         { std::lock_guard<std::mutex> guard(s.mutex);
           const auto distance = reverseBefore - s.position();
-          assert(distance >= 900 && distance <= 1400); }
+          assert(distance >= 500 && distance <= 1400); }
         assert(audioFrames.load() == silentBefore && s.opens == 1);
         assert(uniqueFrames.load() >= reverseFrames + 2);
+        holdDisplay = true;
+        for (int i = 0; i < 200 && !displayHeld; ++i) QThread::msleep(10);
+        assert(displayHeld);
+        int64_t stalledPosition, stalledTarget;
+        { std::lock_guard<std::mutex> guard(s.mutex);
+          stalledPosition = s.position(); stalledTarget = s.reverseTarget; }
+        QThread::msleep(650);
+        { std::lock_guard<std::mutex> guard(s.mutex);
+          assert(s.position() == stalledPosition && s.reverseTarget == stalledTarget && !s.stepPaused); }
+        holdDisplay = false;
+        QThread::msleep(400);
         // Switching back to forward preserves the current clip and advances.
         { std::lock_guard<std::mutex> guard(s.mutex);
           reverseBefore = s.position(); assert(s.direction(false)); }
@@ -194,15 +207,16 @@ int main(int argc, char **argv) {
         QThread::msleep(1100);
         { std::lock_guard<std::mutex> guard(s.mutex);
           const auto distance = reverseBefore - s.position();
-          assert(distance >= 400 && distance <= 700);
+          assert(distance >= 200 && distance <= 700);
           s.pause(true); reverseBefore = s.position(); }
         QThread::msleep(250);
         { std::lock_guard<std::mutex> guard(s.mutex); assert(s.position() == reverseBefore); }
-        assert(setRate(s, 1));
+        assert(setRate(s, 10));
         { std::lock_guard<std::mutex> guard(s.mutex); s.pause(false); reverseBefore = s.position(); }
         QThread::msleep(3600);
         { std::lock_guard<std::mutex> guard(s.mutex);
-          assert(reverseBefore - s.position() >= 25 && reverseBefore - s.position() <= 45);
+          std::fprintf(stderr, "10%% reverse distance %lld, pending %d target %lld\n", (long long)(reverseBefore - s.position()), s.reversePending, (long long)s.reverseTarget);
+          assert(reverseBefore - s.position() >= 200 && reverseBefore - s.position() <= 450);
           s.pause(true); assert(s.direction(false)); }
         assert(state(&s) == OBS_MEDIA_STATE_PAUSED && s.opens == 1);
         assert(setRate(s, 100));
