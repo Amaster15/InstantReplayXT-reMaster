@@ -31,23 +31,6 @@ public:
     QLabel *timelineTime;
     QTimer *scrubTimer, *seekHold;
     ReplayPosition timelinePosition;
-    std::string resumeAfterScrub;
-    void beginScrub() {
-        resumeAfterScrub.clear();
-        if (playbackState && togglePause && playbackState() == 1) {
-            resumeAfterScrub = timelinePosition.clip;
-            togglePause();
-            refreshPause();
-        }
-    }
-    void finishScrub() {
-        scrub();
-        const auto clip = resumeAfterScrub;
-        resumeAfterScrub.clear();
-        if (!clip.empty() && position && position().clip == clip &&
-            playbackState && playbackState() == 2 && togglePause) togglePause();
-        refreshPause();
-    }
     std::function<ReplayPosition()> position;
     std::function<bool(int64_t, const std::string &)> seek;
     static QString formatTime(int64_t milliseconds) {
@@ -68,7 +51,7 @@ public:
     void refreshTimeline() {
         const auto next = position ? position() : ReplayPosition{};
         const bool changed = next.clip != timelinePosition.clip;
-        if (changed) { scrubTimer->stop(); seekHold->stop(); resumeAfterScrub.clear(); }
+        if (changed) { scrubTimer->stop(); seekHold->stop(); }
         timelinePosition = next;
         const bool valid = next.duration > 0 && !next.clip.empty();
         timeline->setEnabled(valid);
@@ -157,7 +140,7 @@ public:
         pauseButton = new QPushButton("Pause", this);
         pauseButton->setToolTip("Freeze the current replay frame; click Resume to continue from the same position.");
         presets->addWidget(pauseButton);
-        connect(pauseButton, &QPushButton::clicked, this, [this] { resumeAfterScrub.clear(); if (togglePause) togglePause(); refreshPause(); });
+        connect(pauseButton, &QPushButton::clicked, this, [this] { if (togglePause) togglePause(); refreshPause(); });
         auto *pausePoll = new QTimer(this); pausePoll->setInterval(250);
         connect(pausePoll, &QTimer::timeout, this, [this] { if (isVisible()) refreshPause(); });
         pausePoll->start(); refreshPause();
@@ -165,7 +148,7 @@ public:
         timelineRow->addWidget(new QLabel("Clip position", this));
         timeline = new QSlider(Qt::Horizontal, this); timeline->setRange(0, 10000);
         timeline->setAccessibleName("Scrub replay backward or forward");
-        timeline->setToolTip("Drag to preview backward or forward; playback resumes on release. Paused clips stay paused.");
+        timeline->setToolTip("Drag to move backward or forward. Playing clips keep playing; paused clips stay paused.");
         timelineRow->addWidget(timeline, 1);
         timelineTime = new QLabel(this); timelineRow->addWidget(timelineTime);
         scrubTimer = new QTimer(this); scrubTimer->setSingleShot(true);
@@ -175,8 +158,7 @@ public:
             if (!scrubTimer->isActive()) scrubTimer->start(40);
         });
         connect(scrubTimer, &QTimer::timeout, this, [this] { scrub(); });
-        connect(timeline, &QSlider::sliderPressed, this, [this] { beginScrub(); });
-        connect(timeline, &QSlider::sliderReleased, this, [this] { finishScrub(); });
+        connect(timeline, &QSlider::sliderReleased, this, [this] { scrub(); });
         connect(pausePoll, &QTimer::timeout, this, [this] { if (isVisible()) refreshTimeline(); });
         refreshTimeline();
         modeHint = new QLabel(this); modeHint->setWordWrap(true); layout->addWidget(modeHint);
