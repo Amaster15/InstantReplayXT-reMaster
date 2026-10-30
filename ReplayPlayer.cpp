@@ -135,10 +135,12 @@ struct Player {
     int64_t position() const {
         return previewPosition >= 0 ? int64_t(previewPosition) : vlc.libvlc_media_player_get_time(player);
     }
-    std::chrono::steady_clock::time_point nextStep;
-    void stopSteps() { stepping = false; silentSteps = false; previewPosition = -1; stepWake.notify_all(); }
+    std::chrono::steady_clock::time_point nextStep, previewRefreshAt;
+    bool previewRefresh = false;
+    void stopSteps() { previewRefresh = false; stepping = false; silentSteps = false; previewPosition = -1; stepWake.notify_all(); }
     void pause(bool paused) {
         stepPaused = paused;
+        if (!paused) previewRefresh = false;
         if (!paused && !stepping) previewPosition = -1;
         vlc.libvlc_media_player_set_pause(player, stepping || paused);
         nextStep = std::chrono::steady_clock::now(); stepWake.notify_all();
@@ -149,8 +151,12 @@ struct Player {
         // after the requested picture is decoded. Track the preview position.
         previewPosition = paused || stepping ? double(time) : -1;
         vlc.libvlc_media_player_set_time(player, time);
-        // A paused seek decodes its own preview. Keep seek commands adjacent
-        // so VLC can discard obsolete positions while the user drags.
+        // Keep rapid seek commands adjacent so VLC can discard obsolete
+        // positions. Refresh once after a quiet interval: Windows VLC can
+        // otherwise lose its paused preview clock after rapid backward seeks.
+        previewRefresh = paused || stepping;
+        previewRefreshAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(80);
+        stepWake.notify_all();
         if (stepping) {
             const double seconds = 100.0 / (frameRate.load() * speed);
             nextStep = std::chrono::steady_clock::now() +
@@ -161,6 +167,14 @@ struct Player {
     void stepLoop() {
         std::unique_lock<std::mutex> guard(mutex);
         while (!shutdown) {
+            if (previewRefresh) {
+                if (std::chrono::steady_clock::now() < previewRefreshAt) {
+                    stepWake.wait_until(guard, previewRefreshAt); continue;
+                }
+                previewRefresh = false;
+                if (vlc.libvlc_media_player_get_state(player) == 4)
+                    vlc.libvlc_media_player_next_frame(player);
+            }
             if (!stepping || stepPaused) { stepWake.wait(guard); continue; }
             if (std::chrono::steady_clock::now() < nextStep) {
                 stepWake.wait_until(guard, nextStep); continue;

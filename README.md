@@ -330,6 +330,7 @@ if the clip was playing. Existing freeze frames stay paused. Preview requests
 are sent at most every 40 ms, with the newest slider position taking priority.
 VLC no longer receives an extra frame-step command for every seek, allowing it
 to combine obsolete seek requests instead of building up work during a drag.
+A single delayed frame refresh restores paused previews after a burst of seeks.
 The release position is always sent immediately.
 
 Backward preview responsiveness still depends on video resolution, keyframe
