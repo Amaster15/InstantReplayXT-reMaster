@@ -158,6 +158,39 @@ public:
         }
         return true;
     }
+    int direction() {
+        if (!playbackState() || speedSource) return -1;
+        auto *source = media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
+        if (!source) return -1;
+        if (std::string(obs_source_get_unversioned_id(source)) != "irxt_vlc_player") { obs_source_release(source); return -1; }
+        calldata_t call; calldata_init(&call);
+        const bool ok = proc_handler_call(obs_source_get_proc_handler(source), "irxt_get_direction", &call);
+        const int result = ok ? (calldata_bool(&call, "reverse") ? 1 : 0) : -1;
+        calldata_free(&call); obs_source_release(source); return result;
+    }
+    void toggleDirection() {
+        const int before = direction();
+        if (before < 0) return;
+        const auto selected = position();
+        auto *source = media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
+        if (!source) return;
+        calldata_t call; calldata_init(&call); calldata_set_bool(&call, "reverse", before == 0);
+        const bool ok = proc_handler_call(obs_source_get_proc_handler(source), "irxt_set_direction", &call) && calldata_bool(&call, "success");
+        calldata_free(&call); obs_source_release(source);
+        if (!ok) { replay_status("Could not change replay direction."); return; }
+        if (!libraryPlayback && phase == Playing) {
+            const int remaining = frozenRemaining >= 0 ? frozenRemaining : timer.remainingTime();
+            if (remaining >= 0 && timedEndPosition < 0)
+                timedEndPosition = selected.position + int64_t(remaining) * speedPercent / 100;
+            if (before == 0 && remaining >= 0) {
+                frozenRemaining = std::max(1, remaining); timer.stop();
+            } else if (before == 1 && timedEndPosition >= 0) {
+                const auto left = std::clamp<int64_t>((timedEndPosition - selected.position) * 100 / speedPercent, 1, INT_MAX);
+                if (playbackState() == 1) { timer.start(int(left)); frozenRemaining = -1; }
+                else frozenRemaining = int(left);
+            }
+        }
+    }
     void togglePause() {
         const int state = playbackState();
         if (!state) return;
@@ -169,7 +202,9 @@ public:
         obs_source_release(source);
         if (paused && phase == Playing && timer.isActive()) {
             frozenRemaining = std::max(1, timer.remainingTime()); timer.stop();
-        } else if (!paused && frozenRemaining >= 0) {
+        } else if (!paused && frozenRemaining >= 0 && direction() != 1) {
+            if (timedEndPosition >= 0)
+                frozenRemaining = int(std::clamp<int64_t>((timedEndPosition - position().position) * 100 / speedPercent, 1, INT_MAX));
             timer.start(frozenRemaining); frozenRemaining = -1;
         }
     }
@@ -520,6 +555,8 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
 void replay_play_clip(const std::string &path, bool switchScene) {
     if (controller) controller->playLatest(!switchScene, path, true);
 }
+void replay_toggle_direction() { if (controller) controller->toggleDirection(); }
+int replay_direction() { return controller ? controller->direction() : -1; }
 void replay_toggle_pause() { if (controller) controller->togglePause(); }
 int replay_playback_state() { return controller ? controller->playbackState() : 0; }
 ReplayPosition replay_position() { return controller ? controller->position() : ReplayPosition{}; }

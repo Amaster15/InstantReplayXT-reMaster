@@ -50,3 +50,6 @@ bool replay_is_busy();
 
 bool replay_prepare_player_change();
 bool replay_ensure_player();
+
+void replay_toggle_direction();
+int replay_direction();

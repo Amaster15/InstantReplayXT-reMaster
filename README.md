@@ -148,8 +148,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.17-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.17-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.18-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.18-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -193,7 +193,7 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.17-obs31-windows-x64-setup.exe`.
+Close OBS, then run `InstantReplayXT-2.0.18-obs31-windows-x64-setup.exe`.
 Accept the Windows administrator prompt. Setup includes a destination folder selector and remembers the previous install location for upgrades. The recommended default is:
 
 ```text
@@ -221,7 +221,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.17-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.18-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -235,8 +235,8 @@ To use a custom plugin folder, pass `--install-dir "/absolute/OBS-plugin-search-
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.17-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.17-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.18-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.18-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,
@@ -360,3 +360,21 @@ scrubbing.
 Regression tests check decoded pictures after forward and backward seeks at
 100%, 50% and 1%, and verify that the clip was not reopened. Panel tests verify
 that dragging and releasing never toggle playback state.
+
+## Reverse playback (2.0.18)
+
+The clip library has a Reverse button next to Pause when using the VLC player.
+It rewinds at the selected speed (1–200%); the same button changes to Forward
+to return to normal direction. Speed presets and the speed slider also apply
+while rewinding. Paused clips stay paused when changing direction; Resume
+continues in the selected direction.
+
+Reverse uses timed backward seeks with silent audio, not native negative-rate
+decoding. It can look choppier than forward playback, especially with large clips
+or widely spaced keyframes. It pauses at the beginning instead of looping.
+Scrubbing during reverse establishes a new rewind position. Playing another
+clip or restarting the current one restores forward direction.
+
+Automatic scene return waits during rewind, then recalculates its remaining
+time when returning to forward playback. Standard Media Source does not support
+this reverse control; select the VLC player to enable it.

@@ -126,6 +126,40 @@ struct Player {
     std::mutex mutex;
     std::string path;
     int speed = 100;
+    bool reverse = false;
+    int64_t reverseOrigin = 0;
+    std::chrono::steady_clock::time_point reverseStart;
+    void anchorReverse() {
+        reverseOrigin = std::max<int64_t>(0, position());
+        reverseStart = std::chrono::steady_clock::now();
+    }
+    std::chrono::milliseconds reverseInterval() const {
+        return std::chrono::milliseconds(std::max<int64_t>(100, int64_t(100000.0 / (frameRate.load() * speed))));
+    }
+    bool direction(bool backward) {
+        if (backward == reverse) return true;
+        const int current = vlc.libvlc_media_player_get_state(player);
+        if (current != 3 && current != 4) return false;
+        const bool paused = stepping ? stepPaused : current == 4;
+        const int64_t selected = std::max<int64_t>(0, position());
+        if (backward) {
+            reverse = true; stepping = true; silentSteps = true; stepPaused = paused;
+            previewPosition = selected; anchorReverse();
+            vlc.libvlc_media_player_set_pause(player, 1);
+            nextStep = std::chrono::steady_clock::now() + reverseInterval();
+        } else {
+            reverse = false; previewRefresh = false;
+            stepping = false; silentSteps = false;
+            rate(speed);
+            pause(paused);
+            seek(selected);
+            // Native resume is asynchronous; a still-paused native state must
+            // not leave the forward timeline pinned to this seek forever.
+            if (!paused && !stepping) { previewPosition = -1; previewRefresh = false; }
+        }
+        stepWake.notify_all();
+        return true;
+    }
     std::condition_variable stepWake;
     std::thread stepThread;
     bool shutdown = false, stepping = false, stepPaused = false;
@@ -137,27 +171,31 @@ struct Player {
     }
     std::chrono::steady_clock::time_point nextStep, previewRefreshAt;
     bool previewRefresh = false;
-    void stopSteps() { previewRefresh = false; stepping = false; silentSteps = false; previewPosition = -1; stepWake.notify_all(); }
+    void stopSteps() { reverse = false; previewRefresh = false; stepping = false; silentSteps = false; previewPosition = -1; stepWake.notify_all(); }
     void pause(bool paused) {
         stepPaused = paused;
+        if (reverse) anchorReverse();
         if (!paused) previewRefresh = false;
         if (!paused && !stepping) previewPosition = -1;
         vlc.libvlc_media_player_set_pause(player, stepping || paused);
         nextStep = std::chrono::steady_clock::now(); stepWake.notify_all();
     }
-    void seek(int64_t time) {
+    void seek(int64_t time, bool reanchor = true) {
         const bool paused = vlc.libvlc_media_player_get_state(player) == 4;
         // VLC's paused input clock can report the earlier demux keyframe even
         // after the requested picture is decoded. Track the preview position.
         previewPosition = paused || stepping ? double(time) : -1;
         vlc.libvlc_media_player_set_time(player, time);
+        if (reverse && reanchor) anchorReverse();
         // Keep rapid seek commands adjacent so VLC can discard obsolete
         // positions. Refresh once after a quiet interval: Windows VLC can
         // otherwise lose its paused preview clock after rapid backward seeks.
         previewRefresh = paused || stepping;
         previewRefreshAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(80);
         stepWake.notify_all();
-        if (stepping) {
+        if (reverse) {
+            nextStep = std::chrono::steady_clock::now() + reverseInterval();
+        } else if (stepping) {
             const double seconds = 100.0 / (frameRate.load() * speed);
             nextStep = std::chrono::steady_clock::now() +
                 std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(seconds));
@@ -181,6 +219,14 @@ struct Player {
             }
             const int current = vlc.libvlc_media_player_get_state(player);
             if (current == 3 || current == 4) {
+                if (reverse) {
+                    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - reverseStart).count();
+                    const int64_t target = std::max<int64_t>(0, reverseOrigin - elapsed * speed / 100);
+                    seek(target, false);
+                    if (target == 0) stepPaused = true;
+                    continue;
+                }
                 vlc.libvlc_media_player_next_frame(player);
                 if (previewPosition >= 0) previewPosition += 1000.0 / frameRate.load();
                 const double seconds = 100.0 / (frameRate.load() * speed);
@@ -261,6 +307,12 @@ struct Player {
     }
     bool rate(int percent) {
         const int next = std::clamp(percent, 1, 200);
+        if (reverse) {
+            if (next == speed) return true;
+            anchorReverse(); speed = next;
+            nextStep = std::chrono::steady_clock::now() + reverseInterval();
+            stepWake.notify_all(); return true;
+        }
         // VLC 3 clamps live rates below 1/32. Pace its frame-step API for
         // 1-3% instead of trusting set_rate/get_rate or reopening the input.
         const bool wasStepping = stepping;
@@ -282,7 +334,7 @@ struct Player {
     }
     void start() {
         if (path.empty() || failed) return;
-        previewPosition = -1;
+        reverse = false; previewRefresh = false; previewPosition = -1;
         const int requested = speed;
         vlc.libvlc_media_player_set_rate(player, float(speed < 4 ? 100 : speed) / 100.f);
         if (vlc.libvlc_media_player_play(player) != 0) {
@@ -329,6 +381,14 @@ static void liveRate(void *data, calldata_t *call) {
     const bool success = s->rate(int(calldata_int(call, "percent")));
     calldata_set_bool(call, "success", success);
 }
+static void setDirection(void *data, calldata_t *call) {
+    auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex);
+    calldata_set_bool(call, "success", s->direction(calldata_bool(call, "reverse")));
+}
+static void getDirection(void *data, calldata_t *call) {
+    auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex);
+    calldata_set_bool(call, "reverse", s->reverse);
+}
 static void diagnostics(void *data, calldata_t *call) {
     auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex);
     calldata_set_int(call, "opens", int64_t(s->opens));
@@ -343,6 +403,8 @@ static void *create(obs_data_t *settings, obs_source_t *source) {
     if (!s->player) { delete s; return nullptr; }
     proc_handler_add(obs_source_get_proc_handler(source), "void irxt_set_rate(in int percent, out bool success)", liveRate, s);
     proc_handler_add(obs_source_get_proc_handler(source), "void irxt_player_state(out int opens, out float rate)", diagnostics, s);
+    proc_handler_add(obs_source_get_proc_handler(source), "void irxt_set_direction(in bool reverse, out bool success)", setDirection, s);
+    proc_handler_add(obs_source_get_proc_handler(source), "void irxt_get_direction(out bool reverse)", getDirection, s);
     s->update(settings); return s;
 }
 static enum obs_media_state state(void *data) {

@@ -27,6 +27,7 @@ public:
     QCheckBox *switchScene;
     QSlider *speed;
     QPushButton *pauseButton;
+    QPushButton *reverseButton = nullptr;
     QSlider *timeline;
     QLabel *timelineTime;
     QTimer *scrubTimer, *seekHold;
@@ -71,10 +72,18 @@ public:
     std::function<QString()> latest;
     std::function<void(const QString &, bool)> play;
     std::function<void(int)> changeSpeed;
+    std::function<void()> toggleDirection;
+    std::function<int()> direction; // -1 unavailable, 0 forward, 1 reverse
     std::function<void()> togglePause;
     std::function<int()> playbackState; // 0 unavailable, 1 playing, 2 paused
     void refreshPause() {
         const int state = playbackState ? playbackState() : 0;
+        if (reverseButton) {
+            const int dir = direction ? direction() : -1;
+            reverseButton->setEnabled(state != 0 && dir >= 0);
+            reverseButton->setText(dir == 1 ? "Forward" : "Reverse");
+            reverseButton->setAccessibleName(dir == 1 ? "Switch replay to forward playback" : "Reverse replay at selected speed");
+        }
         pauseButton->setEnabled(state != 0);
         pauseButton->setText(state == 2 ? "Resume" : "Pause");
         pauseButton->setAccessibleName(state == 2 ? "Resume replay" : "Pause replay for freeze frame");
@@ -140,6 +149,10 @@ public:
         pauseButton = new QPushButton("Pause", this);
         pauseButton->setToolTip("Freeze the current replay frame; click Resume to continue from the same position.");
         presets->addWidget(pauseButton);
+        reverseButton = new QPushButton("Reverse", this);
+        reverseButton->setToolTip("VLC only: rewind at the selected speed with silent audio. Click Forward to return. Paused clips stay paused; rewind stops at the first frame.");
+        presets->addWidget(reverseButton);
+        connect(reverseButton, &QPushButton::clicked, this, [this] { if (toggleDirection) toggleDirection(); refreshPause(); });
         connect(pauseButton, &QPushButton::clicked, this, [this] { if (togglePause) togglePause(); refreshPause(); });
         auto *pausePoll = new QTimer(this); pausePoll->setInterval(250);
         connect(pausePoll, &QTimer::timeout, this, [this] { if (isVisible()) refreshPause(); });
@@ -165,7 +178,7 @@ public:
         auto updateHint = [this] {
             modeHint->setText(!usesVlc()
                 ? "Standard Media Source reloads the clip when speed changes. Try VLC live slow motion for speed changes without reloading."
-                : "VLC changes speed without reloading. At 1–3%, frames advance slowly and audio is silent. Requires VLC 3.x (64-bit on Windows). 100% = normal; 200% = double speed.");
+                : "VLC changes speed without reloading. Reverse uses silent backward seeks and may be less smooth. At 1–3%, frames advance slowly and audio is silent. Requires VLC 3.x (64-bit on Windows). 100% = normal; 200% = double speed.");
         };
         connect(playbackMode, qOverload<int>(&QComboBox::currentIndexChanged), this, [updateHint](int) { updateHint(); }); updateHint();
         status = new QLabel(this); status->setWordWrap(true); status->setTextFormat(Qt::PlainText); layout->addWidget(status);
