@@ -1,6 +1,7 @@
 // Modernization of InstantReplayXT; original copyright and license in LICENSE.
 #include "InstantReplay.h"
 #include "ReplayFiles.h"
+#include "ReplayTrim.h"
 #include <QCoreApplication>
 #include <QMetaObject>
 #include <QObject>
@@ -38,7 +39,9 @@ public:
     obs_source_t *scene = nullptr;
     obs_source_t *media = nullptr;
     std::vector<MutedSource> muted;
-    int pause = 0, length = 0;
+    int pause = 0, length = 0, clipSeconds = 0;
+    QString trimmer;
+    std::shared_ptr<std::atomic<bool>> saveCancelled;
     bool desktop = false, aux = false;
     std::string backup, replayFolder, lastReplay, pendingReplay, heldMediaFile;
     bool waitingForMedia = false;
@@ -83,6 +86,7 @@ public:
         muted.clear();
     }
     void reset(bool returnToScene) {
+        if (saveCancelled) saveCancelled->store(true);
         frozenRemaining = -1;
         timedEndPosition = -1;
         timer.stop();
@@ -256,11 +260,18 @@ public:
         obs_source_update(source, update); obs_data_release(update);
         if (!running) obs_source_release(source);
     }
-    void start() {
+    void start(int seconds = 0) {
         if (phase != Idle) { replay_status("A replay is already in progress."); return; }
         if (!get_enabled()) { replay_status("Enable Instant Replay in Tools > Instant Replay XT settings."); return; }
         if (!obs_frontend_replay_buffer_active()) {
             replay_status("Replay Buffer is stopped. Click Start Replay Buffer in OBS, let it collect video, then try again.");
+            return;
+        }
+        clipSeconds = seconds;
+        saveCancelled = std::make_shared<std::atomic<bool>>(false);
+        trimmer = QString::fromUtf8(get_replay_trimmer().c_str());
+        if (seconds != 0 && (seconds < 1 || seconds > 3600 || !QFileInfo(trimmer).isExecutable())) {
+            replay_status("Clip trimming helper is missing or preset length is invalid. Reinstall the plugin; the full-buffer Save replay hotkey is still available.");
             return;
         }
         finishSpeed(); // Cancel a pending seek before saving can replace the source file.
@@ -277,7 +288,7 @@ public:
         backup = backupRequested ? get_backup_path() : "";
         replayFolder = get_replay_path();
         phase = Saving;
-        replay_status("Saving replay buffer…");
+        replay_status(seconds ? "Saving replay buffer for clip preset (" + std::to_string(seconds) + " seconds)…" : "Saving replay buffer…");
         timer.start(std::max(1000, get_wait()));
         obs_frontend_replay_buffer_save();
     }
@@ -323,13 +334,13 @@ public:
         const auto replay = pendingReplay;
         phase = Processing;
         const auto request = generation;
-        replay_status("Writing InstantReplay and numbered backup…");
+        replay_status(clipSeconds ? "Fast trimming clip and writing numbered backup…" : "Writing InstantReplay and numbered backup…");
         backups.setMaxThreadCount(1);
-        backups.start([this, replay, backupPath = backup, folder = replayFolder, backupEnabled = backupRequested, request] {
+        backups.start([this, replay, backupPath = backup, folder = replayFolder, backupEnabled = backupRequested, seconds = clipSeconds, helper = trimmer, cancelled = saveCancelled, request] {
             replay_files::Result result;
             std::string error;
             try {
-                result = replay_files::publish(replay, folder, backupPath);
+                result = replay_trim::publish(replay, folder, backupPath, seconds, helper, cancelled);
                 if (backupEnabled && backupPath.empty()) result.warning = "Backup enabled but no active match / backup folder selected; no backup written.";
             }
             catch (const std::exception &e) { error = e.what(); }
@@ -486,6 +497,17 @@ public:
 ReplayController *controller = nullptr;
 obs_hotkey_id hotkeyId = OBS_INVALID_HOTKEY_ID;
 obs_hotkey_id playHotkeyId = OBS_INVALID_HOTKEY_ID;
+obs_hotkey_id clipHotkeys[3] = {OBS_INVALID_HOTKEY_ID, OBS_INVALID_HOTKEY_ID, OBS_INVALID_HOTKEY_ID};
+int clipPresets[3] = {0, 1, 2};
+void clipHotkey(void *data, obs_hotkey_id, obs_hotkey_t *, bool pressed) {
+    if (!pressed || !controller || !data) return;
+    const int preset = *static_cast<int *>(data);
+    QMetaObject::invokeMethod(controller, [preset] {
+        if (!controller || preset < 0 || preset >= 3) return;
+        const int seconds = get_clip_seconds(preset);
+        if (seconds >= 1 && seconds <= 3600) controller->start(seconds);
+    }, Qt::QueuedConnection);
+}
 void frontendEvent(obs_frontend_event event, void *) {
     if (!controller) return;
     // OBS frontend events run on the UI thread. Manual scene changes cancel replay
@@ -508,12 +530,21 @@ void replayStartup() {
     controller = new ReplayController;
     hotkeyId = obs_hotkey_register_frontend("Instant Replay", "Instant Replay XT: Save replay", instant_replay_hotkey, nullptr);
     playHotkeyId = obs_hotkey_register_frontend("Instant Replay Play", "Instant Replay XT: Play latest replay", instant_replay_play_hotkey, nullptr);
+    for (int i = 0; i < 3; ++i) {
+        const auto name = "Instant Replay Clip " + std::to_string(i + 1);
+        const auto label = "Instant Replay XT: Save clip preset " + std::to_string(i + 1);
+        clipHotkeys[i] = obs_hotkey_register_frontend(name.c_str(), label.c_str(), clipHotkey, &clipPresets[i]);
+    }
     obs_frontend_add_event_callback(frontendEvent, nullptr);
 }
 void replayShutdown() {
     obs_frontend_remove_event_callback(frontendEvent, nullptr);
     if (hotkeyId != OBS_INVALID_HOTKEY_ID) obs_hotkey_unregister(hotkeyId);
     if (playHotkeyId != OBS_INVALID_HOTKEY_ID) obs_hotkey_unregister(playHotkeyId);
+    for (auto &id : clipHotkeys) {
+        if (id != OBS_INVALID_HOTKEY_ID) obs_hotkey_unregister(id);
+        id = OBS_INVALID_HOTKEY_ID;
+    }
     playHotkeyId = OBS_INVALID_HOTKEY_ID;
     hotkeyId = OBS_INVALID_HOTKEY_ID;
     delete controller; controller = nullptr;
@@ -536,6 +567,11 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
         auto *playKeys = obs_hotkey_save(playHotkeyId);
         obs_data_set_array(obj, "play_hotkey", playKeys);
         obs_data_array_release(playKeys);
+        for (int i = 0; i < 3; ++i) {
+            auto *bindings = obs_hotkey_save(clipHotkeys[i]);
+            obs_data_set_array(obj, ("clip_hotkey_" + std::to_string(i + 1)).c_str(), bindings);
+            obs_data_array_release(bindings);
+        }
         obs_data_set_obj(save_data, "InstantReplay", obj);
         obs_data_array_release(keys);
         obs_data_release(obj);
@@ -546,6 +582,11 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *) {
         obs_hotkey_load(hotkeyId, keys);
         auto *playKeys = obs_data_get_array(obj, "play_hotkey");
         obs_hotkey_load(playHotkeyId, playKeys);
+        for (int i = 0; i < 3; ++i) {
+            auto *bindings = obs_data_get_array(obj, ("clip_hotkey_" + std::to_string(i + 1)).c_str());
+            obs_hotkey_load(clipHotkeys[i], bindings);
+            obs_data_array_release(bindings);
+        }
         obs_data_array_release(playKeys);
         obs_data_array_release(keys);
         obs_data_release(obj);

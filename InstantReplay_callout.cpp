@@ -13,6 +13,7 @@
 #include <QCloseEvent>
 #include <QHideEvent>
 #include <QFileDialog>
+#include <algorithm>
 
 QPointer<replayCallout> co;
 static QPointer<QAction> settingsAction;
@@ -41,6 +42,22 @@ int get_pause()
 int get_replay()
 {
 	return co->ui->replaySpinBox->value() * 1000;
+}
+
+int get_clip_seconds(int preset)
+{
+    return co && preset >= 0 && preset < 3 ? co->ui->clipSeconds[preset]->value() : 0;
+}
+
+std::string get_replay_trimmer()
+{
+    if (!obs_current_module()) return {};
+#ifdef Q_OS_WIN
+    char *path = obs_module_file("trimmer/ffmpeg.exe");
+#else
+    char *path = obs_module_file("trimmer/ffmpeg");
+#endif
+    std::string result = path ? path : ""; bfree(path); return result;
 }
 
 std::string get_scene()
@@ -299,6 +316,8 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		obs_data_set_int(obj, "wait", co->ui->waitSpinBox->value());
 		obs_data_set_int(obj, "pause", co->ui->pauseSpinBox->value());
 		obs_data_set_int(obj, "replay", co->ui->replaySpinBox->value());
+        for (int i = 0; i < 3; ++i)
+            obs_data_set_int(obj, ("clipSeconds" + std::to_string(i + 1)).c_str(), co->ui->clipSeconds[i]->value());
 		qstr = co->ui->sceneLineEdit->text();
 		str = qstr.toStdString();
 		obs_data_set_string(obj, "scene", str.c_str());
@@ -360,6 +379,12 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		co->ui->waitSpinBox->setValue(obs_data_get_int(obj, "wait"));
 		co->ui->pauseSpinBox->setValue(obs_data_get_int(obj, "pause"));
 		co->ui->replaySpinBox->setValue(obs_data_get_int(obj, "replay"));
+        const int defaults[] = {15, 30, 60};
+        for (int i = 0; i < 3; ++i) {
+            const auto key = "clipSeconds" + std::to_string(i + 1);
+            obs_data_set_default_int(obj, key.c_str(), defaults[i]);
+            co->ui->clipSeconds[i]->setValue(int(std::clamp<long long>(obs_data_get_int(obj, key.c_str()), 1, 3600)));
+        }
 		qstr = QString::fromUtf8(obs_data_get_string(obj, "scene"));
 		co->ui->sceneLineEdit->setText(qstr);
 		co->ui->muteDCheck->setChecked(obs_data_get_bool(obj, "Dmute"));

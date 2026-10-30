@@ -15,12 +15,13 @@
 #include <QTimer>
 #include <QDir>
 #include <QSignalBlocker>
+#include <QEvent>
 #include <functional>
 
 // Scene-collection settings. Removing a row never deletes clips from disk.
 class MatchPanel : public QWidget {
 public:
-    QTableWidget *folders;
+    QTableWidget *folders = nullptr;
     QCheckBox *enabled, *autoRefresh;
     ObsChoice *vlcName;
     QLabel *activeLabel, *status;
@@ -80,10 +81,10 @@ public:
         connect(next, &QPushButton::clicked, this, [this] { if (active >= 0) { selectNext(active); requestRefresh(); } else status->setText("Choose an enabled match with Use selected match."); });
         activeLabel = new QLabel(this); activeLabel->setTextFormat(Qt::PlainText); activeLabel->setWordWrap(true);
         layout->addWidget(activeLabel);
-        auto *note = new QLabel("Normally keep one match active for all its clips, then click Next match. Disabled rows are skipped. At the end, select a match explicitly; the list does not wrap. Each folder has its own backup numbering. Removing a row keeps its files.", this);
+        auto *note = new QLabel("Normally keep one match active for all its clips, then click Next match. The active match is bold. Unchecked rows are grey and marked Off; they are skipped until checked again. Next match does not uncheck earlier matches. At the end, select a match explicitly; the list does not wrap. Each folder has its own backup numbering. Removing a row keeps its files.", this);
         note->setWordWrap(true); layout->addWidget(note);
         auto *vlcRow = new QHBoxLayout; layout->addLayout(vlcRow);
-        vlcRow->addWidget(new QLabel("BRB VLC source", this));
+        vlcRow->addWidget(new QLabel("Playlist VLC source", this));
         vlcName = new ObsChoice(this); vlcName->options = [] { return obsNames("vlc_source"); }; vlcName->refresh(); vlcRow->addWidget(vlcName);
         autoRefresh = new QCheckBox("Refresh VLC after backups and match changes (wait while source is visible)", this); layout->addWidget(autoRefresh);
         auto *refresh = new QPushButton("Refresh VLC now (restarts playlist)", this); layout->addWidget(refresh);
@@ -116,18 +117,52 @@ public:
         folders->setItem(row, 1, new QTableWidgetItem(name));
         folders->setItem(row, 2, new QTableWidgetItem(path));
         folders->selectRow(row);
+        updateRowStyles();
         if (!loading && settingsChanged) settingsChanged();
     }
     void selectNext(int after) {
         for (int row = after + 1; row < folders->rowCount(); ++row)
-            if (usable(row)) { active = row; showActive(); return; }
+            if (usable(row)) {
+                active = row;
+                folders->selectRow(row); folders->scrollToItem(folders->item(row, 0));
+                showActive(); return;
+            }
+        folders->clearSelection();
         active = -1; showActive();
         status->setText("No next enabled match. Choose a match or add a folder; backups are paused in match mode.");
     }
     void showActive() {
+        updateRowStyles();
         if (!loading && settingsChanged) settingsChanged();
         activeLabel->setText(!enabled->isChecked() ? "Match mode is off: using the single backup folder." :
             usable(active) ? "Active: " + folders->item(active, 1)->text() + " — " + activePath() : "No active match — match backups paused.");
+    }
+    void updateRowStyles() {
+        if (!folders) return;
+        // Appearance changes must not trigger itemChanged, autosaves or VLC refreshes.
+        QSignalBlocker block(folders);
+        for (int row = 0; row < folders->rowCount(); ++row) {
+            auto *check = folders->item(row, 0);
+            if (!check) continue;
+            const bool off = check->checkState() != Qt::Checked;
+            const bool current = enabled->isChecked() && row == active && usable(row);
+            check->setText(off ? "Off" : current ? "Active" : usable(row) ? "Ready" : "No folder");
+            for (int col = 0; col < folders->columnCount(); ++col) {
+                auto *item = folders->item(row, col);
+                if (!item) continue;
+                item->setData(Qt::ForegroundRole, off ? QVariant(folders->palette().brush(QPalette::Disabled, QPalette::Text)) : QVariant());
+                auto font = folders->font(); font.setBold(current); font.setItalic(off);
+                item->setFont(font);
+                item->setToolTip(off ? "Off — skipped when advancing matches. Check Enabled to use this folder again." :
+                    current ? "Active backup folder for new clips." : usable(row) ?
+                    "Enabled — available for selection or Next match." : "Choose a backup folder before using this match.");
+            }
+        }
+    }
+    void changeEvent(QEvent *event) override {
+        QWidget::changeEvent(event);
+        if (event->type() == QEvent::PaletteChange || event->type() == QEvent::FontChange)
+            updateRowStyles();
     }
     void move(int delta) {
         int from = folders->currentRow(), to = from + delta;
@@ -152,7 +187,7 @@ public:
         }
         if (!force && obs_source_showing(source)) {
             pendingRefresh = true; obs_source_release(source);
-            status->setText("VLC refresh queued until the BRB source is off-screen. Refresh now will restart it."); return;
+            status->setText("VLC refresh queued until the playlist source is off-screen. Refresh now will restart it."); return;
         }
         QStringList paths;
         if (enabled->isChecked()) {

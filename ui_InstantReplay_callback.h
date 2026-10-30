@@ -63,6 +63,7 @@ public:
 	QLabel *statusLabel;
     QCheckBox *autoSwitchCheck;
     QPushButton *playButton;
+    QSpinBox *clipSeconds[3];
 
 	void setupUi(QDialog *replayCallout)
 	{
@@ -74,8 +75,25 @@ public:
         auto *general = new QWidget;
         auto *scroll = new QScrollArea; scroll->setWidgetResizable(true); scroll->setWidget(general);
         tabs->addTab(scroll, "Replay settings");
+        auto *hotkeys = new QWidget;
+        auto *hotkeyLayout = new QVBoxLayout(hotkeys);
+        auto *description = new QLabel("Save the latest part of the replay buffer. Assign keys in OBS Settings > Hotkeys under Instant Replay XT: Save clip preset 1, 2 and 3.");
+        description->setWordWrap(true); hotkeyLayout->addWidget(description);
+        const int defaults[] = {15, 30, 60};
+        for (int i = 0; i < 3; ++i) {
+            auto *row = new QHBoxLayout;
+            row->addWidget(new QLabel(QString("Clip preset %1").arg(i + 1)));
+            clipSeconds[i] = new QSpinBox;
+            clipSeconds[i]->setObjectName(QString("clipSeconds%1").arg(i + 1));
+            clipSeconds[i]->setRange(1, 3600); clipSeconds[i]->setSuffix(" seconds");
+            clipSeconds[i]->setValue(defaults[i]); row->addWidget(clipSeconds[i]);
+            hotkeyLayout->addLayout(row);
+        }
+        auto *note = new QLabel("Fast saving keeps the original video quality and audio tracks. Clips start at a clean keyframe, so they may run longer by up to one keyframe interval. A 1–2 second recording keyframe interval keeps lengths closer.\n\nSet OBS Replay Buffer's maximum replay time at least as high as your longest preset, and allow it to collect enough video. If less history is available, the clip will be shorter.\n\nThe original Save replay hotkey still saves the full buffer. Presets use the same replay folder, active match backup folder and automatic scene-switch setting.");
+        note->setWordWrap(true); hotkeyLayout->addWidget(note); hotkeyLayout->addStretch();
+        tabs->addTab(hotkeys, "Clip hotkeys");
         matches = new MatchPanel;
-        tabs->addTab(matches, "Matches / BRB playlist");
+        tabs->addTab(matches, "Matches / Playlist");
         library = new ClipPanel;
         tabs->addTab(library, "Clip library");
         auto *saveRow = new QHBoxLayout;
@@ -228,7 +246,7 @@ public:
 
 	void retranslateUi(QDialog *replayCallout)
 	{
-		replayCallout->setWindowTitle("Instant Replay XT 2.0.20");
+		replayCallout->setWindowTitle("Instant Replay XT 2.0.21");
 		enableLabel->setText(QApplication::translate("replayCallout", "Enable", Q_NULLPTR));
 		waitLabel->setText(QApplication::translate("replayCallout", "WritePause", Q_NULLPTR));
 		pauseLabel->setText(QApplication::translate("replayCallout", "TransitionPause", Q_NULLPTR));

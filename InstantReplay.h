@@ -20,6 +20,8 @@ void instant_replay_play_hotkey(void*, obs_hotkey_id, obs_hotkey_t*, bool);
 int get_wait();
 int get_pause();
 int get_replay();
+int get_clip_seconds(int preset);
+std::string get_replay_trimmer();
 std::string get_scene();
 bool get_D_mute();
 bool get_A_mute();
