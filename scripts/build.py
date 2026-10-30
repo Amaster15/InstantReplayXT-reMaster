@@ -39,6 +39,10 @@ def main():
         parser.error("Install CMake 3.28 or newer, or pass --cmake PATH")
     run(sys.executable, ROOT / "tests" / "test_update_helper.py")
     slug = system.lower() + "-x64"
+    if system == "Linux":
+        run(sys.executable, ROOT / "scripts" / "build_trimmer.py", "--jobs", args.jobs)
+    elif not (ROOT / "build-trimmer/windows-x64/ffmpeg.exe").is_file():
+        raise RuntimeError("Build scripts/build_trimmer.py in MSYS2 UCRT64 before the Windows package")
     deps = ROOT / ".deps" / slug
     source = deps / "obs-studio-31.0.0"
     sdk_build = deps / "build-sdk"
@@ -87,6 +91,10 @@ def main():
                        check=True, env=test_env)
         subprocess.run([str(build / "Release" / "replay-player-test.exe"),
                         str(ROOT / "tests" / "fixtures" / "replay-test.mp4")], check=True, env=test_env)
+        subprocess.run([str(build / "Release" / "replay-trim-test.exe"),
+                        str(ROOT / "build-trimmer/windows-x64/ffmpeg.exe"),
+                        str(ROOT / "build-trimmer/windows-x64/ffprobe.exe"),
+                        str(ROOT / "tests/fixtures/replay-test.mp4")], check=True, env=test_env)
     if args.test:
         ctest = Path(cmake).with_name("ctest.exe" if system == "Windows" else "ctest")
         run(ctest, "--test-dir", build, "--output-on-failure")
@@ -100,7 +108,7 @@ def main():
     (stage / "build-info.json").write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
     artifacts = ROOT / "artifacts"
     artifacts.mkdir(exist_ok=True)
-    name = "InstantReplayXT-2.0.20-obs31-" + slug
+    name = "InstantReplayXT-2.0.21-obs31-" + slug
     if system == "Windows":
         archive = artifacts / (name + ".zip")
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
