@@ -127,6 +127,14 @@ struct Player {
     std::string path;
     int speed = 100;
     bool reverse = false;
+    // A seek must produce a decoded/displayed picture before another is sent.
+    // Paused VLC can redisplay the same picture, so count unlocks, not displays.
+    std::atomic<uint64_t> decodedSerial{0}, displayedSerial{0};
+    std::atomic<int64_t> displayedAt{0};
+    bool reversePending = false;
+    uint64_t reverseSerial = 0;
+    int64_t reverseTarget = 0;
+    std::chrono::steady_clock::time_point reverseRequested;
     int64_t reverseOrigin = 0;
     std::chrono::steady_clock::time_point reverseStart;
     void anchorReverse() {
@@ -143,19 +151,23 @@ struct Player {
         const bool paused = stepping ? stepPaused : current == 4;
         const int64_t selected = std::max<int64_t>(0, position());
         if (backward) {
+            reversePending = false;
             reverse = true; stepping = true; silentSteps = true; stepPaused = paused;
             previewPosition = selected; anchorReverse();
             vlc.libvlc_media_player_set_pause(player, 1);
             nextStep = std::chrono::steady_clock::now() + reverseInterval();
         } else {
-            reverse = false; previewRefresh = false;
+            reverse = false; reversePending = false; previewRefresh = false;
             stepping = false; silentSteps = false;
             rate(speed);
             pause(paused);
             seek(selected);
             // Native resume is asynchronous; a still-paused native state must
             // not leave the forward timeline pinned to this seek forever.
-            if (!paused && !stepping) { previewPosition = -1; previewRefresh = false; }
+            if (!paused && !stepping) {
+                vlc.libvlc_media_player_set_rate(player, float(speed) / 100.f);
+                previewPosition = -1; previewRefresh = false;
+            }
         }
         stepWake.notify_all();
         return true;
@@ -171,12 +183,17 @@ struct Player {
     }
     std::chrono::steady_clock::time_point nextStep, previewRefreshAt;
     bool previewRefresh = false;
-    void stopSteps() { reverse = false; previewRefresh = false; stepping = false; silentSteps = false; previewPosition = -1; stepWake.notify_all(); }
+    bool seekRateRestore = false;
+    uint64_t seekSerial = 0;
+    std::chrono::steady_clock::time_point seekRateAt;
+    void stopSteps() { seekRateRestore = false; reverse = false; reversePending = false; previewRefresh = false; stepping = false; silentSteps = false; previewPosition = -1; stepWake.notify_all(); }
     void pause(bool paused) {
         stepPaused = paused;
+        seekRateRestore = false;
         if (reverse) anchorReverse();
         if (!paused) previewRefresh = false;
         if (!paused && !stepping) previewPosition = -1;
+        if (!paused && !stepping) vlc.libvlc_media_player_set_rate(player, float(speed) / 100.f);
         vlc.libvlc_media_player_set_pause(player, stepping || paused);
         nextStep = std::chrono::steady_clock::now(); stepWake.notify_all();
     }
@@ -185,8 +202,15 @@ struct Player {
         // VLC's paused input clock can report the earlier demux keyframe even
         // after the requested picture is decoded. Track the preview position.
         previewPosition = paused || stepping ? double(time) : -1;
+        // Decode paused previews at normal rate. A retained slow native rate
+        // stretches VLC's seek buffering and can delay pictures by seconds.
+        // Resume restores the selected forward rate; rewind is paced here.
+        seekSerial = decodedSerial.load();
+        seekRateRestore = !paused && !stepping && speed != 100;
+        seekRateAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+        vlc.libvlc_media_player_set_rate(player, 1.f);
         vlc.libvlc_media_player_set_time(player, time);
-        if (reverse && reanchor) anchorReverse();
+        if (reverse && reanchor) { reversePending = false; anchorReverse(); }
         // Keep rapid seek commands adjacent so VLC can discard obsolete
         // positions. Refresh once after a quiet interval: Windows VLC can
         // otherwise lose its paused preview clock after rapid backward seeks.
@@ -205,6 +229,11 @@ struct Player {
     void stepLoop() {
         std::unique_lock<std::mutex> guard(mutex);
         while (!shutdown) {
+            if (seekRateRestore && displayedSerial.load() > seekSerial &&
+                std::chrono::steady_clock::now() >= seekRateAt) {
+                vlc.libvlc_media_player_set_rate(player, float(speed) / 100.f);
+                seekRateRestore = false;
+            }
             if (previewRefresh) {
                 if (std::chrono::steady_clock::now() < previewRefreshAt) {
                     stepWake.wait_until(guard, previewRefreshAt); continue;
@@ -213,18 +242,52 @@ struct Player {
                 if (vlc.libvlc_media_player_get_state(player) == 4)
                     vlc.libvlc_media_player_next_frame(player);
             }
-            if (!stepping || stepPaused) { stepWake.wait(guard); continue; }
+            if (!stepping || stepPaused) {
+                if (seekRateRestore) stepWake.wait_for(guard, std::chrono::milliseconds(10));
+                else stepWake.wait(guard);
+                continue;
+            }
             if (std::chrono::steady_clock::now() < nextStep) {
                 stepWake.wait_until(guard, nextStep); continue;
             }
             const int current = vlc.libvlc_media_player_get_state(player);
             if (current == 3 || current == 4) {
                 if (reverse) {
-                    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - reverseStart).count();
-                    const int64_t target = std::max<int64_t>(0, reverseOrigin - elapsed * speed / 100);
-                    seek(target, false);
-                    if (target == 0) stepPaused = true;
+                    const auto now = std::chrono::steady_clock::now();
+                    if (reversePending) {
+                        if (displayedSerial.load() > reverseSerial) {
+                            previewPosition = double(reverseTarget);
+                            reversePending = false;
+                            // Do not count a decoder stall as unseen rewind.
+                            // Keep the selected rate when decoding keeps up,
+                            // but never jump seconds ahead to catch a timer.
+                            const auto requestedAt = std::chrono::duration_cast<std::chrono::milliseconds>(reverseRequested.time_since_epoch()).count();
+                            if (displayedAt.load() - requestedAt > 250)
+                                anchorReverse();
+                            if (reverseTarget == 0) { stepPaused = true; continue; }
+                        } else {
+                            // Retry the SAME position if VLC lost a paused
+                            // preview. Never advance or declare the end early.
+                            if (now - reverseRequested > std::chrono::seconds(2)) {
+                                const auto held = previewPosition;
+                                reverseSerial = decodedSerial.load();
+                                seek(reverseTarget, false); previewPosition = held;
+                                reverseRequested = now;
+                            }
+                            nextStep = now + std::chrono::milliseconds(10);
+                            continue;
+                        }
+                    }
+                    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - reverseStart).count();
+                    const auto desired = std::max<int64_t>(0, reverseOrigin - elapsed * speed / 100);
+                    const auto held = position();
+                    // Bound each seek even after stalls or process suspension.
+                    reverseTarget = std::max<int64_t>(desired, held - std::max<int64_t>(1, std::max<int64_t>(250, reverseInterval().count()) * speed / 100));
+                    if (reverseTarget >= held) { nextStep = now + reverseInterval(); continue; }
+                    reverseSerial = decodedSerial.load();
+                    reversePending = true; reverseRequested = now;
+                    seek(reverseTarget, false);
+                    previewPosition = double(held); // report displayed progress
                     continue;
                 }
                 vlc.libvlc_media_player_next_frame(player);
@@ -246,7 +309,7 @@ struct Player {
         clockOffset = int64_t(os_gettime_ns()) - vlc.libvlc_clock() * 1000;
         player = vlc.libvlc_media_player_new(vlc.instance);
         if (!player) return;
-        vlc.libvlc_video_set_callbacks(player, lock, nullptr, display, this);
+        vlc.libvlc_video_set_callbacks(player, lock, unlock, display, this);
         vlc.libvlc_video_set_format_callbacks(player, format, nullptr);
         vlc.libvlc_audio_set_callbacks(player, audio, nullptr, nullptr, nullptr, nullptr, this);
         vlc.libvlc_audio_set_format(player, "FL32", 48000, 2);
@@ -291,10 +354,17 @@ struct Player {
     static void *lock(void *opaque, void **planes) {
         *planes = static_cast<Player *>(opaque)->frame.data[0]; return nullptr;
     }
+    static void unlock(void *opaque, void *, void *const *) {
+        ++static_cast<Player *>(opaque)->decodedSerial;
+    }
     static void display(void *opaque, void *) {
         auto *s = static_cast<Player *>(opaque);
         s->frame.timestamp = os_gettime_ns();
         obs_source_output_video(s->source, &s->frame);
+        s->displayedAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        s->displayedSerial = s->decodedSerial.load();
+        s->stepWake.notify_all();
     }
     static void audio(void *opaque, const void *samples, unsigned count, int64_t pts) {
         auto *s = static_cast<Player *>(opaque);
@@ -306,7 +376,7 @@ struct Player {
         obs_source_output_audio(s->source, &audio);
     }
     bool rate(int percent) {
-        const int next = std::clamp(percent, 1, 200);
+        const int next = std::clamp(percent, 10, 200);
         if (reverse) {
             if (next == speed) return true;
             anchorReverse(); speed = next;
@@ -334,7 +404,7 @@ struct Player {
     }
     void start() {
         if (path.empty() || failed) return;
-        reverse = false; previewRefresh = false; previewPosition = -1;
+        reverse = false; reversePending = false; previewRefresh = false; previewPosition = -1;
         const int requested = speed;
         vlc.libvlc_media_player_set_rate(player, float(speed < 4 ? 100 : speed) / 100.f);
         if (vlc.libvlc_media_player_play(player) != 0) {
@@ -440,7 +510,7 @@ void replay_player_register() {
     info.get_properties = [](void *) {
         auto *properties = obs_properties_create();
         obs_properties_add_path(properties, "local_file", "Clip", OBS_PATH_FILE, "Video (*.mkv *.mp4 *.mov *.flv *.ts *.webm);;All files (*.*)", nullptr);
-        obs_properties_add_int_slider(properties, "speed_percent", "Playback speed (%)", 1, 200, 1);
+        obs_properties_add_int_slider(properties, "speed_percent", "Playback speed (%)", 10, 200, 1);
         return properties;
     };
     info.activate = [](void *data) { auto *s = static_cast<Player *>(data); std::lock_guard<std::mutex> guard(s->mutex); s->start(); };

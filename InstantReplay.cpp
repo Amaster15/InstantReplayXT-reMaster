@@ -216,7 +216,7 @@ public:
             timer.start(std::max(1, timer.remainingTime() * oldSpeed / speedPercent));
     }
     void setSpeed(int percent) {
-        speedPercent = std::clamp(percent, 1, 200);
+        speedPercent = std::clamp(percent, 10, 200);
         if (speedSource || phase == Saving || phase == ReleasingMedia || phase == Processing) return;
         auto *source = media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
         if (!source) return;

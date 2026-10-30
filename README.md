@@ -148,8 +148,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.18-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.18-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.19-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.19-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -193,7 +193,7 @@ on Linux because the fake frontend relies on ELF symbol interposition.
 
 ## Install on Windows 10/11
 
-Close OBS, then run `InstantReplayXT-2.0.18-obs31-windows-x64-setup.exe`.
+Close OBS, then run `InstantReplayXT-2.0.19-obs31-windows-x64-setup.exe`.
 Accept the Windows administrator prompt. Setup includes a destination folder selector and remembers the previous install location for upgrades. The recommended default is:
 
 ```text
@@ -221,7 +221,7 @@ DLL in `<portable OBS>/obs-plugins/64bit/` and its locale in
 Close OBS and run the self-contained installer as your desktop user, **without sudo**:
 
 ```sh
-sh InstantReplayXT-2.0.18-obs31-linux-x64-install.run
+sh InstantReplayXT-2.0.19-obs31-linux-x64-install.run
 ```
 
 It installs to `${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/InstantReplay`.
@@ -235,8 +235,8 @@ To use a custom plugin folder, pass `--install-dir "/absolute/OBS-plugin-search-
 Preview the destination, or uninstall later using the same downloaded file:
 
 ```sh
-sh InstantReplayXT-2.0.18-obs31-linux-x64-install.run --dry-run
-sh InstantReplayXT-2.0.18-obs31-linux-x64-install.run --uninstall
+sh InstantReplayXT-2.0.19-obs31-linux-x64-install.run --dry-run
+sh InstantReplayXT-2.0.19-obs31-linux-x64-install.run --uninstall
 ```
 
 Uninstall removes only files shipped by the installer; OBS settings, recordings,
@@ -378,3 +378,22 @@ clip or restarting the current one restores forward direction.
 Automatic scene return waits during rewind, then recalculates its remaining
 time when returning to forward playback. Standard Media Source does not support
 this reverse control; select the VLC player to enable it.
+
+
+## Rewind decoding and 10% minimum (2.0.19)
+
+The speed range is now 10–200%, with quick buttons for 10%, 25%, 50%, 75%,
+and 100%. Saved speeds below 10% are raised to 10% when loaded.
+
+Reverse waits for a newly decoded picture to be displayed before sending its
+next seek. A slow decoder no longer builds a queue of obsolete seek requests,
+and the rewind position no longer races ahead to zero before pictures arrive.
+The first-frame pause is applied after the final seek produces a picture.
+Seek previews decode at normal speed to avoid stretching VLC's buffering
+at slow-motion rates. Playing seeks restore the selected speed after a picture
+arrives; paused seeks restore it on Resume.
+
+This is still silent, seek-based reverse. When decoding cannot keep up, rewind
+slows down instead of skipping seconds of unseen footage. Smooth frame-by-frame
+reverse at the selected rate is not guaranteed, especially for long keyframe
+intervals and high-resolution footage.
