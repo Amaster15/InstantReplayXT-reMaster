@@ -336,6 +336,9 @@ static void diagnostics(void *data, calldata_t *call) {
 }
 static void *create(obs_data_t *settings, obs_source_t *source) {
     if (!vlc.load()) return nullptr;
+    // VLC already schedules display callbacks. A second timed queue in OBS
+    // can retain obsolete pictures across paused seeks and sparse slow motion.
+    obs_source_set_async_unbuffered(source, true);
     auto *s = new Player(source);
     if (!s->player) { delete s; return nullptr; }
     proc_handler_add(obs_source_get_proc_handler(source), "void irxt_set_rate(in int percent, out bool success)", liveRate, s);
