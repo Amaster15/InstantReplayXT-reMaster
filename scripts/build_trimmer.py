@@ -50,8 +50,20 @@ def main():
              "--enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc,av1_frame_merge,vp9_superframe"]
     if windows:
         flags.extend(["--target-os=mingw32", "--extra-ldflags=-static"])
-    subprocess.run(["bash", (source / "configure").as_posix(), *flags], cwd=build, check=True)
-    subprocess.run(["make", f"-j{max(1, args.jobs)}", "ffmpeg" + (".exe" if windows else ""), "ffprobe" + (".exe" if windows else "")], cwd=build, check=True)
+    # Resolve PATH explicitly: Windows CreateProcess otherwise searches System32
+    # first and can launch the WSL bash stub instead of the active MSYS2 shell.
+    bash = shutil.which("bash")
+    make = shutil.which("make")
+    if not bash or not make:
+        raise RuntimeError("Building the clip helper requires bash and make on PATH")
+    configure = (source / "configure").as_posix()
+    if windows:
+        cygpath = shutil.which("cygpath")
+        if not os.environ.get("MSYSTEM") or not cygpath:
+            raise RuntimeError("Build the Windows helper inside an MSYS2 UCRT64 shell")
+        configure = subprocess.check_output([cygpath, "-u", configure], text=True).strip()
+    subprocess.run([bash, configure, *flags], cwd=build, check=True)
+    subprocess.run([make, f"-j{max(1, args.jobs)}", "ffmpeg" + (".exe" if windows else ""), "ffprobe" + (".exe" if windows else "")], cwd=build, check=True)
     stage = ROOT / "build-trimmer" / slug
     stage.mkdir(parents=True, exist_ok=True)
     executable = "ffmpeg.exe" if windows else "ffmpeg"
