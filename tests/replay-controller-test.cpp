@@ -263,10 +263,15 @@ int main(int argc, char **argv) {
     }
     // VLC's public rate procedure must not invoke a source update or seek.
     static int liveRate = 100, liveUpdates = 0;
+    static bool liveReverse = false;
     sourceInfo.id = "irxt_vlc_player";
     sourceInfo.create = [](obs_data_t *, obs_source_t *source) -> void * {
         proc_handler_add(obs_source_get_proc_handler(source), "void irxt_set_rate(in int percent, out bool success)",
             [](void *, calldata_t *call) { liveRate = int(calldata_int(call, "percent")); calldata_set_bool(call, "success", true); }, nullptr);
+        proc_handler_add(obs_source_get_proc_handler(source), "void irxt_get_direction(out bool reverse)",
+            [](void *, calldata_t *call) { calldata_set_bool(call, "reverse", liveReverse); }, nullptr);
+        proc_handler_add(obs_source_get_proc_handler(source), "void irxt_set_direction(in bool reverse, out bool success)",
+            [](void *, calldata_t *call) { liveReverse = calldata_bool(call, "reverse"); calldata_set_bool(call, "success", true); }, nullptr);
         return new int(0);
     };
     sourceInfo.update = [](void *, obs_data_t *) { ++liveUpdates; };
@@ -310,7 +315,16 @@ int main(int argc, char **argv) {
         assert(c.seek(4345, c.position().clip));
         assert(c.frozenRemaining == frozenBeforeSeek - 4000 && !c.timer.isActive());
         c.togglePause(); assert(c.timer.isActive() && c.frozenRemaining == -1);
+        c.setSpeed(100); c.timer.start(5000); c.timedEndPosition = -1;
+        mediaPosition = 5000;
+        c.toggleDirection(); assert(c.direction() == 1 && !c.timer.isActive() && c.frozenRemaining > 0);
+        const auto endPosition = c.timedEndPosition;
+        mediaPosition = 3000;
+        c.togglePause(); c.togglePause(); assert(!c.timer.isActive());
+        c.toggleDirection(); assert(c.direction() == 0 && c.timer.isActive());
+        assert(c.timer.remainingTime() > 6500 && c.timedEndPosition == endPosition);
         c.phase = ReplayController::Saving;
+        assert(c.direction() == -1);
         assert(c.playbackState() == 0); c.togglePause(); assert(mediaState == OBS_MEDIA_STATE_PLAYING);
         assert(!c.seek(1000, timeline.clip));
 

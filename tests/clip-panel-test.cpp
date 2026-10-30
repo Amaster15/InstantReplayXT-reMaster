@@ -47,6 +47,13 @@ int main(int argc, char **argv) {
     panel.refreshTimeline();
     assert(playback == 1 && toggles == 2);
     playback = 0; panel.refreshPause(); assert(!panel.pauseButton->isEnabled());
+    int playDirection = 0, directionChanges = 0;
+    playback = 1; panel.direction = [&] { return playDirection; };
+    panel.toggleDirection = [&] { playDirection = !playDirection; ++directionChanges; };
+    panel.refreshPause(); assert(panel.reverseButton->isEnabled() && panel.reverseButton->text() == "Reverse");
+    panel.reverseButton->click(); assert(playDirection == 1 && panel.reverseButton->text() == "Forward" && playback == 1);
+    playback = 2; panel.reverseButton->click(); assert(playDirection == 0 && playback == 2 && directionChanges == 2);
+    playDirection = -1; panel.refreshPause(); assert(!panel.reverseButton->isEnabled());
     assert(panel.speed->minimum() == 1 && panel.speed->maximum() == 200);
     for (int percent : {1, 25, 50, 75, 100}) {
         bool found = false;

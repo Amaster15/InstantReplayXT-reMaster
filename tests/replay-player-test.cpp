@@ -163,6 +163,65 @@ int main(int argc, char **argv) {
             assert(releaseError < 6 && uniqueFrames.load() > beforeRelease);
             assert(state(&s) == OBS_MEDIA_STATE_PLAYING && s.opens == 1);
         }
+        // Reverse follows the positive speed selection without reopening the
+        // input. Its paused decoder remains silent and can hold a freeze frame.
+        assert(setRate(s, 100));
+        { std::lock_guard<std::mutex> guard(s.mutex); s.seek(10000); }
+        QThread::msleep(500);
+        { std::lock_guard<std::mutex> guard(s.mutex); assert(s.direction(true)); assert(s.reverse); }
+        QThread::msleep(200); // drain any audio already in flight
+        int64_t reverseBefore;
+        { std::lock_guard<std::mutex> guard(s.mutex); reverseBefore = s.position(); }
+        const auto silentBefore = audioFrames.load();
+        const auto reverseFrames = uniqueFrames.load();
+        QThread::msleep(1100);
+        { std::lock_guard<std::mutex> guard(s.mutex);
+          const auto distance = reverseBefore - s.position();
+          assert(distance >= 900 && distance <= 1400); }
+        assert(audioFrames.load() == silentBefore && s.opens == 1);
+        assert(uniqueFrames.load() >= reverseFrames + 2);
+        // Switching back to forward preserves the current clip and advances.
+        { std::lock_guard<std::mutex> guard(s.mutex);
+          reverseBefore = s.position(); assert(s.direction(false)); }
+        QThread::msleep(900);
+        { std::lock_guard<std::mutex> guard(s.mutex);
+          assert(!s.reverse && s.position() >= reverseBefore - 200);
+          assert(s.direction(true)); s.seek(8000); }
+        QThread::msleep(250);
+        { std::lock_guard<std::mutex> guard(s.mutex); assert(s.position() < 8000 && s.position() > 7500); }
+        assert(setRate(s, 50));
+        { std::lock_guard<std::mutex> guard(s.mutex); reverseBefore = s.position(); }
+        QThread::msleep(1100);
+        { std::lock_guard<std::mutex> guard(s.mutex);
+          const auto distance = reverseBefore - s.position();
+          assert(distance >= 400 && distance <= 700);
+          s.pause(true); reverseBefore = s.position(); }
+        QThread::msleep(250);
+        { std::lock_guard<std::mutex> guard(s.mutex); assert(s.position() == reverseBefore); }
+        assert(setRate(s, 1));
+        { std::lock_guard<std::mutex> guard(s.mutex); s.pause(false); reverseBefore = s.position(); }
+        QThread::msleep(3600);
+        { std::lock_guard<std::mutex> guard(s.mutex);
+          assert(reverseBefore - s.position() >= 25 && reverseBefore - s.position() <= 45);
+          s.pause(true); assert(s.direction(false)); }
+        assert(state(&s) == OBS_MEDIA_STATE_PAUSED && s.opens == 1);
+        assert(setRate(s, 100));
+        { std::lock_guard<std::mutex> guard(s.mutex); s.seek(150); s.pause(false); }
+        QThread::msleep(100);
+        { std::lock_guard<std::mutex> guard(s.mutex); assert(s.direction(true)); }
+        QThread::msleep(700);
+        { std::lock_guard<std::mutex> guard(s.mutex); assert(s.position() == 0 && s.stepPaused); }
+        assert(state(&s) == OBS_MEDIA_STATE_PAUSED);
+        float firstError = 1000;
+        for (int i = 0; i < 300; ++i) {
+            { std::lock_guard<std::mutex> guard(pictureMutex);
+              firstError = 0; for (size_t n = 0; n < picture.size(); ++n) firstError += std::abs(picture[n] - seekFirstFrame[n]);
+              firstError /= picture.size(); }
+            if (firstError < 6) break;
+            QThread::msleep(10);
+        }
+        assert(firstError < 6);
+        { std::lock_guard<std::mutex> guard(s.mutex); assert(s.direction(false)); }
         // Release the input before overwriting the fixed replay file (Windows).
         obs_data_set_string(settings, "local_file", ""); s.update(settings);
         assert(QFile::rename(path, path + ".old"));
