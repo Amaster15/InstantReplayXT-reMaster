@@ -14,6 +14,7 @@
 #include <QTimer>
 #include "../ObsChoice.h"
 #include "../SettingsStore.h"
+#include "../ConfigTransfer.h"
 #include <util/bmem.h>
 #include <QPushButton>
 #include <QDialog>
@@ -164,6 +165,23 @@ int main(int argc, char **argv) {
             before = saveRequests;
             window->findChild<QPushButton *>("saveSettingsButton")->click();
             assert(saveRequests == before + 1);
+            auto *dialog = window->findChild<QDialog *>("InstantReplay");
+            assert(dialog->findChild<QPushButton *>("exportConfigButton"));
+            assert(dialog->findChild<QPushButton *>("importConfigButton"));
+            const auto portable = savedDir.filePath("portable config.json"); bool transferred = false;
+            assert(QMetaObject::invokeMethod(dialog, "exportConfig", Qt::DirectConnection,
+                Q_RETURN_ARG(bool, transferred), Q_ARG(QString, portable)) && transferred);
+            window->findChild<QSpinBox *>("waitSpinBox")->setValue(11);
+            assert(QMetaObject::invokeMethod(dialog, "importConfig", Qt::DirectConnection,
+                Q_RETURN_ARG(bool, transferred), Q_ARG(QString, portable)) && transferred);
+            assert(window->findChild<QSpinBox *>("waitSpinBox")->value() == 7);
+            const auto configPath = savedDir.filePath("config/settings.json");
+            assert(SettingsStore(configPath).load("Test collection")["replayCallout_data"].toObject()["wait"] == 7);
+            assert(SettingsStore(configPath + ".bak").load("Test collection")["replayCallout_data"].toObject()["wait"] == 11);
+            QFile invalid(portable); assert(invalid.open(QIODevice::WriteOnly)); invalid.write("{broken"); invalid.close();
+            assert(QMetaObject::invokeMethod(dialog, "importConfig", Qt::DirectConnection,
+                Q_RETURN_ARG(bool, transferred), Q_ARG(QString, portable)) && !transferred);
+            assert(window->findChild<QSpinBox *>("waitSpinBox")->value() == 7);
             // Simulate OBS crashing before its own scene-collection file catches up.
             data = obs_data_get_obj(savedData, "replayCallout_data");
             obs_data_set_string(data, "scene", "Stale OBS scene"); obs_data_release(data);
@@ -187,6 +205,21 @@ int main(int argc, char **argv) {
     assert(store.save("Two", QJsonObject{{"value", 3}}, error));
     assert(store.load("One")["value"].toInt() == 1);
     assert(store.load("Two")["value"].toInt() == 3);
+    // Portable files preserve Unicode, folder order and disabled matches.
+    const auto portable = savedDir.filePath("transfer.json");
+    const QJsonObject match{{"name", "Final"}, {"path", "D:/Clips/Final"}, {"enabled", false}};
+    const QJsonObject replay{{"scene", QString::fromUtf8("Replay 雪")}, {"speedPercent", 50}, {"matches", QJsonArray{match}}};
+    const QJsonObject payload{{"replayCallout_data", replay}};
+    assert(ConfigTransfer::write(portable, payload, error)); QJsonObject imported;
+    assert(ConfigTransfer::read(portable, imported, error) && imported == payload);
+    auto malformed = payload; malformed["replayCallout_data"] = QJsonObject{{"matches", "bad"}};
+    assert(ConfigTransfer::write(portable, malformed, error));
+    assert(!ConfigTransfer::read(portable, imported, error) && imported == payload);
+    assert(!ConfigTransfer::write(savedDir.path(), payload, error));
+    QFile future(portable); assert(future.open(QIODevice::WriteOnly));
+    future.write(QJsonDocument(QJsonObject{{"format", "InstantReplayXT-config"}, {"version", 2}, {"settings", payload}}).toJson()); future.close();
+    assert(!ConfigTransfer::read(portable, imported, error) && imported == payload);
+
     SettingsStore unwritable(savedDir.path());
     assert(!unwritable.save("One", QJsonObject{{"value", 4}}, error));
     obs_data_release(savedData);

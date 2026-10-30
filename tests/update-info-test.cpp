@@ -4,19 +4,19 @@
 #include <QTemporaryDir>
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
-    assert(updates::newer("v2.0.20", "2.0.19"));
-    assert(!updates::newer("v2.0.19"));
-    assert(!updates::newer("v2.0.20-beta"));
+    assert(updates::newer("v2.0.21", "2.0.20"));
+    assert(!updates::newer("v2.0.20"));
+    assert(!updates::newer("v2.0.21-beta"));
     assert(!updates::newer("v2.0.5"));
-    QJsonObject asset{{"name", "InstantReplayXT-2.0.20-obs31-linux-x64-install.run"},
-        {"browser_download_url", updates::repository + "/releases/download/v2.0.20/InstantReplayXT-2.0.20-obs31-linux-x64-install.run"},
+    QJsonObject asset{{"name", "InstantReplayXT-2.0.21-obs31-linux-x64-install.run"},
+        {"browser_download_url", updates::repository + "/releases/download/v2.0.21/InstantReplayXT-2.0.21-obs31-linux-x64-install.run"},
         {"digest", "sha256:" + QString(64, 'a')}, {"size", 100}};
-    QJsonObject object{{"tag_name", "v2.0.20"}, {"assets", QJsonArray{asset}}};
+    QJsonObject object{{"tag_name", "v2.0.21"}, {"assets", QJsonArray{asset}}};
     auto parse = [&] { return updates::parse(QJsonDocument(object).toJson(), "linux-x64"); };
     assert(!parse().name.isEmpty());
     object["prerelease"] = true; assert(parse().version.isEmpty()); object["prerelease"] = false;
     asset["browser_download_url"] = "https://example.com/installer"; object["assets"] = QJsonArray{asset}; assert(parse().name.isEmpty());
-    asset["browser_download_url"] = updates::repository + "/releases/download/v2.0.20/InstantReplayXT-2.0.20-obs31-linux-x64-install.run";
+    asset["browser_download_url"] = updates::repository + "/releases/download/v2.0.21/InstantReplayXT-2.0.21-obs31-linux-x64-install.run";
     asset["digest"] = ""; object["assets"] = QJsonArray{asset}; assert(parse().name.isEmpty());
     asset["digest"] = "sha256:" + QString(64, 'a'); asset["size"] = 200 * 1024 * 1024; object["assets"] = QJsonArray{asset}; assert(parse().name.isEmpty());
     UpdatePanel panel;
