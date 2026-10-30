@@ -14,7 +14,16 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install VLC for live playback tests
-        run: choco install vlc --yes --no-progress --limit-output
+        shell: pwsh
+        run: |
+          $vlcInstaller = Join-Path $env:RUNNER_TEMP "vlc-3.0.24-win64.exe"
+          curl.exe --fail --location --retry 3 --output $vlcInstaller https://download.videolan.org/pub/videolan/vlc/3.0.24/win64/vlc-3.0.24-win64.exe
+          if ($LASTEXITCODE -ne 0) { throw "VLC download failed" }
+          $expectedHash = "d711e1e1fe52052748c39080c7dce63f6b7e4c315efedf1774a3f1957b782ff3"
+          if ((Get-FileHash $vlcInstaller -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedHash) { throw "VLC checksum mismatch" }
+          $vlcInstall = Start-Process -FilePath $vlcInstaller -ArgumentList "/S" -Wait -PassThru
+          if ($vlcInstall.ExitCode -ne 0) { throw "VLC install failed: $($vlcInstall.ExitCode)" }
+          if (!(Test-Path "$env:ProgramFiles/VideoLAN/VLC/libvlc.dll")) { throw "64-bit VLC was not installed" }
       - name: Build OBS 31 SDK and Windows x64 plugin
         run: python scripts/build.py
       - name: Build and test installer
