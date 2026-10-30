@@ -137,6 +137,7 @@ int main(int argc, char **argv) {
             mode->setCurrentIndex(mode->findData(1));
             assert(mode->currentData().toInt() == 1);
             auto *vlc = obs_get_source_by_name("Media test (VLC live)"); assert(vlc);
+            assert(obs_source_async_unbuffered(vlc));
             auto *slider = mode->parentWidget()->findChild<QSlider *>(); assert(slider);
             slider->setValue(50);
             QEventLoop loop; QTimer::singleShot(100, &loop, &QEventLoop::quit); loop.exec();
