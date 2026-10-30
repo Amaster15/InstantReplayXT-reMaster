@@ -35,17 +35,17 @@ int main(int argc, char **argv) {
     panel.pauseButton->click(); assert(playback == 1 && toggles == 2 && panel.pauseButton->text() == "Pause");
     location = {5000, 20000, "drag clip"};
     panel.refreshTimeline();
-    panel.timeline->setSliderDown(true); assert(playback == 2);
+    panel.timeline->setSliderDown(true); assert(playback == 1);
     panel.timeline->setValue(4000);
     panel.timeline->setSliderDown(false); assert(playback == 1 && sought == 8000);
     playback = 2;
     panel.timeline->setSliderDown(true); panel.timeline->setValue(3000);
     panel.timeline->setSliderDown(false); assert(playback == 2 && sought == 6000);
     playback = 1;
-    panel.timeline->setSliderDown(true); assert(playback == 2);
+    panel.timeline->setSliderDown(true); assert(playback == 1);
     location.clip = "replacement";
     panel.refreshTimeline();
-    assert(panel.resumeAfterScrub.empty() && playback == 2);
+    assert(playback == 1 && toggles == 2);
     playback = 0; panel.refreshPause(); assert(!panel.pauseButton->isEnabled());
     assert(panel.speed->minimum() == 1 && panel.speed->maximum() == 200);
     for (int percent : {1, 25, 50, 75, 100}) {

@@ -140,6 +140,29 @@ int main(int argc, char **argv) {
             { std::lock_guard<std::mutex> guard(s.mutex); assert(s.position() == target); }
             assert(state(&s) == OBS_MEDIA_STATE_PAUSED && s.opens == 1);
         }
+        // Drag/release preserves playing state: no automatic pause/resume
+        // commands are injected around seeks.
+        { std::lock_guard<std::mutex> guard(s.mutex); s.pause(false); }
+        for (int percent : {100, 50, 1}) for (int target : {10000, 2000}) {
+            assert(setRate(s, percent));
+            QThread::msleep(100);
+            const auto beforeRelease = uniqueFrames.load();
+            { std::lock_guard<std::mutex> guard(s.mutex); s.seek(target); }
+            float releaseError = 1000;
+            for (int i = 0; i < 400; ++i) {
+                { std::lock_guard<std::mutex> guard(pictureMutex);
+                  releaseError = 0;
+                  for (size_t n = 0; n < picture.size(); ++n)
+                      releaseError += std::abs(picture[n] - (target == 10000 ? seekTenSeconds[n] : seekTwoSeconds[n]));
+                  releaseError /= picture.size(); }
+                if (releaseError < 6 && uniqueFrames.load() > beforeRelease) break;
+                QThread::msleep(10);
+            }
+            std::fprintf(stderr, "Release at %d%% to %d: picture error %.2f, native position %lld\n",
+                percent, target, releaseError, (long long)vlc.libvlc_media_player_get_time(s.player));
+            assert(releaseError < 6 && uniqueFrames.load() > beforeRelease);
+            assert(state(&s) == OBS_MEDIA_STATE_PLAYING && s.opens == 1);
+        }
         // Release the input before overwriting the fixed replay file (Windows).
         obs_data_set_string(settings, "local_file", ""); s.update(settings);
         assert(QFile::rename(path, path + ".old"));
