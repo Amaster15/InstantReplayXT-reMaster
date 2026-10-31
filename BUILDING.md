@@ -27,8 +27,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.21-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.21-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.22-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.22-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,
@@ -106,7 +106,4 @@ disposable GitHub Actions runner; they must not be run against a personal instal
 
 Release packages target the real OBS 31.0.0 SDK, Qt 6.4 on Ubuntu 24.04, and the
 OBS 31 Windows dependency bundle. Local builds against newer OBS/Qt versions are
-for development and must not be published as baseline installers. Previous releases
-have passed Windows and Linux CI. The 2.0.21 clip-hotkey and match-styling
-changes have passed local Linux checks; Windows CI and live OBS testing remain
-required before release. Future OBS major versions need separate validation.
+for development and must not be published as baseline installers. Every release must pass Windows and Linux CI, including installer checks, before publication. Live OBS testing on the target setup remains important. Future OBS major versions need separate validation.

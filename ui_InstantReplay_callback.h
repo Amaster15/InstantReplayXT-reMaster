@@ -258,7 +258,7 @@ public:
 
 	void retranslateUi(QDialog *replayCallout)
 	{
-		replayCallout->setWindowTitle("Instant Replay XT 2.0.21");
+		replayCallout->setWindowTitle("Instant Replay XT 2.0.22");
 		enableLabel->setText(QApplication::translate("replayCallout", "Enable", Q_NULLPTR));
 		waitLabel->setText(QApplication::translate("replayCallout", "WritePause", Q_NULLPTR));
 		pauseLabel->setText(QApplication::translate("replayCallout", "TransitionPause", Q_NULLPTR));
