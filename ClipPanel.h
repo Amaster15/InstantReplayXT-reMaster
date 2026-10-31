@@ -25,6 +25,7 @@ class ClipPanel : public QWidget {
 public:
     QTableWidget *clips;
     QCheckBox *switchScene;
+    QCheckBox *returnScene;
     QSlider *speed;
     QPushButton *pauseButton;
     QPushButton *reverseButton = nullptr;
@@ -128,6 +129,10 @@ public:
         buttons->addWidget(refresh); buttons->addWidget(playButton);
         switchScene = new QCheckBox("Switch scene for Play selected clip / double-click", this);
         layout->addWidget(switchScene);
+        returnScene = new QCheckBox("Return to previous scene when the clip ends", this);
+        returnScene->setObjectName("returnSceneOnEnd");
+        returnScene->setToolTip("For Play + switch and Play latest replay. Return only at the forward end of the clip; pause and reverse stay on the replay scene. Manually leaving cancels the return.");
+        layout->addWidget(returnScene);
         auto *modeRow = new QHBoxLayout; layout->addLayout(modeRow);
         modeRow->addWidget(new QLabel("Replay player", this));
         playbackMode = new QComboBox(this);

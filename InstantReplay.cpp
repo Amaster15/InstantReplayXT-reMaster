@@ -53,12 +53,14 @@ public:
         connect(&playbackPoll, &QTimer::timeout, this, [this] {
             if (!libraryPlayback || !media || phase != Playing || speedSource) return;
             const auto state = obs_source_media_get_state(media);
-            if (state == OBS_MEDIA_STATE_ENDED || state == OBS_MEDIA_STATE_ERROR) {
-                if (state == OBS_MEDIA_STATE_ERROR) replay_status("OBS could not play this clip. Check the OBS log.");
-                advance();
+            if (state == OBS_MEDIA_STATE_ERROR) {
+                replay_status("OBS could not play this clip. Check the OBS log.");
+                reset(false);
+            } else if (state == OBS_MEDIA_STATE_ENDED) {
+                if (direction() != 1) advance();
             } else if (++playbackTicks >= 100 && state != OBS_MEDIA_STATE_PLAYING && state != OBS_MEDIA_STATE_PAUSED) {
                 replay_status("Clip did not start. Make sure the replay Media Source is visible in the replay scene.");
-                advance();
+                reset(false);
             }
         });
         speedWait.setInterval(50);
@@ -163,7 +165,7 @@ public:
         return true;
     }
     int direction() {
-        if (!playbackState() || speedSource) return -1;
+        if ((!playbackState() && phase != Playing) || speedSource) return -1;
         auto *source = media ? obs_source_get_ref(media) : obs_get_source_by_name(get_replay_source_name().c_str());
         if (!source) return -1;
         if (std::string(obs_source_get_unversioned_id(source)) != "irxt_vlc_player") { obs_source_release(source); return -1; }
@@ -432,11 +434,13 @@ public:
                 return;
             }
         }
-        libraryPlayback = library;
+        // Button/hotkey playback follows the actual media end, never a duration timer.
+        libraryPlayback = true;
         playbackTicks = 0;
-        // Manual scene selection stays on that scene; hotkey playback returns to live.
-        if (manual || original == scene) {
-            obs_source_release(original); original = manual ? nullptr : returnScene.release();
+        // Only explicit switching with the option enabled arms a return.
+        if (manual || !get_return_scene_on_end() || original == scene) {
+            obs_source_release(original);
+            original = !manual && get_return_scene_on_end() ? returnScene.release() : nullptr;
         }
         pause = std::max(0, get_pause());
         length = std::max(1, get_replay());
@@ -467,16 +471,37 @@ public:
             replay_status("OBS did not report a saved replay before the timeout. Check the OBS log, recording folder permissions, and Replay Buffer settings.");
             reset(false); break;
         case TransitionIn:
-            for (unsigned channel = 1; channel <= 5; ++channel) {
-                if ((channel <= 2 && !desktop) || (channel >= 3 && !aux)) continue;
-                auto *source = obs_get_output_source(channel);
-                if (!source) continue;
-                // A source may occupy multiple channels; preserve its first state.
-                if (std::any_of(muted.begin(), muted.end(), [source](const auto &m) { return m.source == source; })) {
-                    obs_source_release(source); continue;
-                }
-                muted.push_back({source, obs_source_muted(source)});
-                obs_source_set_muted(source, true);
+            {
+                QStringList mutedNames, missingNames;
+                auto muteSource = [&](obs_source_t *source) {
+                    if (!source) return;
+                    if (!(obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) ||
+                        std::any_of(muted.begin(), muted.end(), [source](const auto &m) { return m.source == source; })) {
+                        obs_source_release(source); return;
+                    }
+                    muted.push_back({source, obs_source_muted(source)});
+                    obs_source_set_muted(source, true);
+                    mutedNames.append(QString::fromUtf8(obs_source_get_name(source)));
+                };
+                auto muteSelection = [&](bool enabled, const std::string &name, unsigned first, unsigned last) {
+                    if (!enabled) return;
+                    if (!name.empty()) {
+                        auto *source = obs_get_source_by_name(name.c_str());
+                        if (!source || !(obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO)) {
+                            missingNames.append(QString::fromUtf8(name.c_str()));
+                            obs_source_release(source); return;
+                        }
+                        muteSource(source);
+                    } else {
+                        for (unsigned channel = first; channel <= last; ++channel)
+                            muteSource(obs_get_output_source(channel));
+                    }
+                };
+                muteSelection(desktop, get_desktop_mute_source(), 1, 2);
+                muteSelection(aux, get_mic_mute_source(), 3, 5);
+                QString message = mutedNames.isEmpty() ? "Replay playing. No audio sources muted." : "Replay playing. Muted: " + mutedNames.join(", ") + ".";
+                if (!missingNames.isEmpty()) message += " Could not mute unavailable audio source: " + missingNames.join(", ") + ".";
+                replay_status(message.toStdString());
             }
             phase = Playing;
             if (libraryPlayback) playbackPoll.start();

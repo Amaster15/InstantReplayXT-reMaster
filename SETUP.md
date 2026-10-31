@@ -140,7 +140,7 @@ Open **Tools > Instant Replay XT Settings > Replay settings**:
 | --- | --- |
 | **Write Pause (s)** | Maximum wait for OBS to report a saved replay. Start with 10 seconds. Zero still waits at least one second. This is not the clip length. |
 | **Transition Pause (ms)** | Transition allowance for replay scene changes. Start with 300 ms; adjust for your scene transition. |
-| **Replay Length (s)** | Timing budget for Play latest replay and automatic replay scene return, adjusted for playback speed. This does not change the saved video length. |
+| **Replay Length (s)** | Timing budget for automatic playback after saving, adjusted for playback speed. This does not change the saved video length. |
 | **Mute Desktop Audio** | Temporarily mute global Desktop Audio channels while replaying. |
 | **Mute Mic/Aux** | Temporarily mute global Mic/Aux channels while replaying. Leave off if you want live commentary. |
 
@@ -160,7 +160,7 @@ shortcuts in OBS and your game.
 | Plugin action | Example key | What it does |
 | --- | --- | --- |
 | **Instant Replay XT: Save replay** | Ctrl+Alt+F9 | Saves the full currently available buffer. |
-| **Instant Replay XT: Play latest replay** | Ctrl+Alt+F10 | Plays the latest replay in the replay scene, then returns using Replay Length timing. |
+| **Instant Replay XT: Play latest replay** | Ctrl+Alt+F10 | Plays the latest replay in the replay scene; optional return waits for the actual clip end. |
 | **Instant Replay XT: Save clip preset 1** *(2.0.21)* | Ctrl+Alt+F1 | Saves approximately the latest 15 seconds by default. |
 | **Instant Replay XT: Save clip preset 2** *(2.0.21)* | Ctrl+Alt+F2 | Saves approximately the latest 30 seconds by default. |
 | **Instant Replay XT: Save clip preset 3** *(2.0.21)* | Ctrl+Alt+F3 | Saves approximately the latest 60 seconds by default. |
@@ -197,7 +197,7 @@ The fixed replay and numbered backup both receive the shortened clip.
    backup should appear. Existing numbered files are not overwritten.
 5. In **Clip library**, click **Refresh clips**, then the **screen-with-play icon**
    beside the clip. OBS should switch to your replay scene, play it, and return
-   to the previous scene at the clip's end.
+   to the previous scene at the clip's end if **Return to previous scene when the clip ends** is checked.
 6. Verify picture and sound in a short test recording. Try **50%**, **Pause**, and
    **Resume**. Press **100%** to return to normal speed.
 7. Close OBS normally, reopen it, and check that your selected folders, player,
@@ -261,7 +261,7 @@ It cannot recover a main replay that was overwritten without a backup.
 | Control | Behavior |
 | --- | --- |
 | **Play triangle** beside a clip | Loads that clip without changing scenes. If the replay scene is already showing, it plays there; otherwise enter the scene manually. |
-| **Screen with play triangle** | Switches to the replay scene, plays that clip, and returns at its end. |
+| **Screen with play triangle** | Switches to the replay scene and plays that clip. The return checkbox controls whether it returns at the end. |
 | **Play selected clip** / double-click | Follows **Switch scene for Play selected clip / double-click**. The two row icons always use their own behavior. |
 | **Playback speed** | 10–200%; quick buttons are 10%, 25%, 50%, 75%, and 100%. Changes playback, not the saved file or clip playlist. |
 | **Pause / Resume** | Freeze the current frame, then continue. Pausing also holds a timed scene return. |
@@ -273,11 +273,11 @@ restarts it. File saving must finish before playback can replace that file.
 A new clip starts in forward direction. Manually leaving the replay scene cancels
 its automatic return.
 
-**Replay Length is different from file length.** The Play latest replay hotkey,
-its settings button, and automatic playback after saving use the configured timer.
-Library playback uses the clip's actual end. If a long clip returns to live too
-soon through Play latest replay, increase Replay Length or use library playback.
-Manual scene entry leaves the scene switch under your control.
+**Return to previous scene when the clip ends** (new, not yet released) is an optional checkbox in Clip library, off by default. It applies to Play + switch, Play selected/double-click with scene switching enabled, and the Play latest replay button/hotkey. The previous scene is remembered when playback switches scenes. Replacing the clip keeps that return scene.
+
+Return happens only when forward playback reaches the actual clip end. Pause, reverse, reaching the first frame, playback errors, and stopping do not trigger a return. Returning uses your OBS scene transition. Manually leaving the replay scene cancels the pending return; manually entering it does not arm a return. The checkbox is saved and included in config export/import; its value is applied when you start playback.
+
+**Replay Length is different from file length.** Automatic playback after saving still uses the configured Replay Length timer. Button/hotkey and library playback follow the actual clip end.
 
 VLC changes speed without reopening the clip. Standard Media Source reloads the
 clip and attempts to restore position. Reverse and seeking are not guaranteed
@@ -363,3 +363,23 @@ For a reproducible issue, open **OBS Help > Log Files > View Current Log** or
 versions, operating system, player mode, exact error, and steps that caused it.
 Plugin messages contain **`[InstantReplayXT]`**. Submit the details through the
 [project issue tracker](https://github.com/Amaster15/InstantReplayXT-reMaster/issues).
+
+### Selecting audio to mute during replay (new, not yet released)
+
+Beside **Mute Desktop** and **Mute Mic/Aux**, choose the exact OBS audio source
+from the dropdown and enable its checkbox. Both lists include audio-capable
+sources from OBS, including scene-specific audio sources. Open a list to refresh
+it after adding sources. The selection is saved and included in config exports.
+
+The **Automatic** choice preserves the original behavior: desktop channels 1–2
+or mic/aux channels 3–5. A named selection mutes only that source. If a named
+source is unavailable, the plugin warns in replay status instead of choosing a
+different source. After importing a config on another computer, select matching
+sources there.
+
+Replay status lists the sources muted when playback starts. OBS's Audio Mixer
+also shows their mute state. Sources stay muted during pause/reverse and regain
+their previous mute state when playback finishes or is cancelled. A source that
+was already muted stays muted; selecting the same source twice restores it once.
+OBS source muting affects that source everywhere it is used, so avoid choosing
+the replay's own audio source unless you want a silent replay.
