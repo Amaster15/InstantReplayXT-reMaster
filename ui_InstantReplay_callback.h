@@ -48,6 +48,8 @@ public:
 	QCheckBox *muteDCheck;
 	QLabel *muteALabel;
 	QCheckBox *muteACheck;
+    ObsChoice *desktopMuteSource;
+    ObsChoice *micMuteSource;
 
 	QLabel *enableBackupLabel;
 	QCheckBox *enableBackupCheck;
@@ -172,7 +174,12 @@ public:
 		muteDCheck = new QCheckBox(replayCallout);
 		muteDCheck->setObjectName(QStringLiteral("muteDCheck"));
 		muteDCheck->setChecked(true);
-		replayLayout->addWidget(muteDCheck, 5, 2, 1, 2);
+		replayLayout->addWidget(muteDCheck, 5, 2);
+        desktopMuteSource = new ObsChoice(replayCallout);
+        desktopMuteSource->setObjectName("desktopMuteSource");
+        desktopMuteSource->setAccessibleName("Desktop audio source to mute");
+        desktopMuteSource->emptyLabel = "Automatic: OBS desktop audio channels";
+        replayLayout->addWidget(desktopMuteSource, 5, 3);
 
 		muteALabel = new QLabel(replayCallout);
 		muteALabel->setObjectName(QStringLiteral("muteALabel"));
@@ -181,7 +188,12 @@ public:
 		muteACheck = new QCheckBox(replayCallout);
 		muteACheck->setObjectName(QStringLiteral("muteACheck"));
 		muteACheck->setChecked(false);
-		replayLayout->addWidget(muteACheck, 6, 2, 1, 2);
+		replayLayout->addWidget(muteACheck, 6, 2);
+        micMuteSource = new ObsChoice(replayCallout);
+        micMuteSource->setObjectName("micMuteSource");
+        micMuteSource->setAccessibleName("Microphone audio source to mute");
+        micMuteSource->emptyLabel = "Automatic: OBS mic/aux channels";
+        replayLayout->addWidget(micMuteSource, 6, 3);
 
 		enableBackupLabel = new QLabel(replayCallout);
 		enableBackupLabel->setObjectName(QStringLiteral("enableBackupLabel"));

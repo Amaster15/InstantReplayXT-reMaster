@@ -9,6 +9,8 @@ static int64_t mediaPosition = 0;
 static obs_media_state mediaState = OBS_MEDIA_STATE_STOPPED;
 static bool enabled = true, active = true, validScene = true, autoSwitch = true;
 bool get_auto_switch() { return autoSwitch; }
+static bool returnOnEnd = true;
+bool get_return_scene_on_end() { return returnOnEnd; }
 static std::string status;
 static std::string outputDir;
 std::string get_replay_path() { return outputDir; }
@@ -27,6 +29,9 @@ int get_pause() { return 300; }
 int get_replay() { return 100; } // Shorter than two transitions: must not underflow.
 std::string get_scene() { return validScene ? "Replay" : "Missing"; }
 std::string get_replay_source_name() { return "Media"; }
+static std::string desktopSelection, micSelection;
+std::string get_desktop_mute_source() { return desktopSelection; }
+std::string get_mic_mute_source() { return micSelection; }
 bool get_D_mute() { return true; }
 bool get_A_mute() { return true; }
 bool get_backup_enabled() { return !backupDir.empty(); }
@@ -114,6 +119,24 @@ int main(int argc, char **argv) {
         assert(c.timer.interval() == 1); // no signed-to-unsigned multi-day wait
         c.advance(); assert(currentScene == obs_scene_get_source(live));
         c.advance(); assert(!obs_source_muted(audio) && c.phase == ReplayController::Idle);
+        obs_source_set_muted(audio, true);
+        // Exact selections override global channels; duplicate selection restores once.
+        obs_source_set_muted(audio, false);
+        desktopSelection = "Media"; micSelection = "Media";
+        obs_source_set_muted(mediaSource, false);
+        c.start(); finishSave(c); c.advance();
+        assert(obs_source_muted(mediaSource) && !obs_source_muted(audio) && c.muted.size() == 1);
+        assert(status.find("Muted: Media") != std::string::npos);
+        c.reset(false); assert(!obs_source_muted(mediaSource));
+        obs_source_set_muted(mediaSource, true);
+        c.start(); finishSave(c); c.advance(); c.reset(false);
+        assert(obs_source_muted(mediaSource));
+        desktopSelection = "Missing audio"; micSelection = "Missing audio";
+        c.start(); finishSave(c); c.advance();
+        assert(!obs_source_muted(audio) && c.muted.empty());
+        assert(status.find("unavailable audio source") != std::string::npos);
+        c.reset(false); obs_source_set_muted(mediaSource, false);
+        desktopSelection.clear(); micSelection.clear();
         obs_source_set_muted(audio, true);
         c.start(); finishSave(c); c.advance(); c.reset(false);
         assert(obs_source_muted(audio)); // preserve already-muted sources
@@ -240,6 +263,24 @@ int main(int argc, char **argv) {
         assert(currentScene == obs_scene_get_source(live) && c.phase == ReplayController::TransitionOut);
         c.advance(); assert(!obs_source_muted(audio));
         c.setSpeed(100);
+        // End-driven return is optional and never triggered by pause, stop or error.
+        returnOnEnd = false;
+        currentScene = obs_scene_get_source(live);
+        c.playLatest(false, chosen, true); c.advance();
+        mediaState = OBS_MEDIA_STATE_ENDED;
+        QMetaObject::invokeMethod(&c.playbackPoll, "timeout", Qt::DirectConnection);
+        assert(c.phase == ReplayController::Idle && currentScene == obs_scene_get_source(replayScene));
+        returnOnEnd = true;
+        currentScene = obs_scene_get_source(live);
+        c.playLatest(false, chosen, true); c.advance();
+        assert(!c.timer.isActive());
+        mediaState = OBS_MEDIA_STATE_PAUSED;
+        for (int i = 0; i < 110; ++i) QMetaObject::invokeMethod(&c.playbackPoll, "timeout", Qt::DirectConnection);
+        assert(c.phase == ReplayController::Playing && currentScene == obs_scene_get_source(replayScene));
+        mediaState = OBS_MEDIA_STATE_ERROR;
+        QMetaObject::invokeMethod(&c.playbackPoll, "timeout", Qt::DirectConnection);
+        assert(c.phase == ReplayController::Idle && currentScene == obs_scene_get_source(replayScene));
+        currentScene = obs_scene_get_source(live);
         c.playLatest(false, (testDir / "missing.mkv").u8string(), true);
         assert(c.phase == ReplayController::Idle && currentScene == obs_scene_get_source(live));
         // Play without switching replaces immediately and stays on the replay scene.
@@ -354,6 +395,21 @@ int main(int argc, char **argv) {
         assert(!c.seek(1000, timeline.clip));
 
         c.reset(false);
+    }
+    {
+        ReplayController c;
+        c.media = obs_source_get_ref(vlcSource);
+        c.scene = obs_source_get_ref(obs_scene_get_source(replayScene));
+        c.original = obs_source_get_ref(obs_scene_get_source(live));
+        c.phase = ReplayController::Playing; c.libraryPlayback = true;
+        currentScene = obs_scene_get_source(replayScene);
+        liveReverse = true; mediaState = OBS_MEDIA_STATE_ENDED;
+        QMetaObject::invokeMethod(&c.playbackPoll, "timeout", Qt::DirectConnection);
+        assert(c.phase == ReplayController::Playing && currentScene == obs_scene_get_source(replayScene));
+        liveReverse = false;
+        QMetaObject::invokeMethod(&c.playbackPoll, "timeout", Qt::DirectConnection);
+        assert(c.phase == ReplayController::TransitionOut && currentScene == obs_scene_get_source(live));
+        c.advance();
     }
     obs_source_release(vlcSource);
     obs_set_output_source(3, nullptr);

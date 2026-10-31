@@ -29,6 +29,11 @@ bool get_auto_switch()
     return co->ui->autoSwitchCheck->isChecked();
 }
 
+bool get_return_scene_on_end()
+{
+    return co && co->ui->library->returnScene->isChecked();
+}
+
 int get_wait()
 {
 	return co->ui->waitSpinBox->value() * 1000;
@@ -64,6 +69,9 @@ std::string get_scene()
 {
 	return co->ui->sceneLineEdit->text().toStdString();
 }
+
+std::string get_desktop_mute_source() { return co->ui->desktopMuteSource->text().toStdString(); }
+std::string get_mic_mute_source() { return co->ui->micMuteSource->text().toStdString(); }
 
 bool get_D_mute()
 {
@@ -125,6 +133,11 @@ replayCallout::replayCallout(QWidget *parent)
         if (path) setProperty("irxtConfigPath", QString::fromUtf8(path));
         bfree(path);
     }
+    for (auto *choice : {ui->desktopMuteSource, ui->micMuteSource}) {
+        choice->options = [] { return audioSourceNames(); };
+        choice->setToolTip("Choose the exact OBS audio source to mute during replay. Automatic keeps the existing global-channel behavior. Missing selections never mute a different source.");
+        choice->refresh();
+    }
     ui->sceneLineEdit->options = [] { return obsNames(); };
     ui->replaySourceNameEdit->options = [this] { return replaySourceNames(ui->sceneLineEdit->text()); };
     ui->sceneLineEdit->refresh(); ui->replaySourceNameEdit->refresh();
@@ -137,7 +150,7 @@ replayCallout::replayCallout(QWidget *parent)
         connect(check, &QCheckBox::toggled, this, &replayCallout::requestSettingsSave);
     for (auto *number : findChildren<QSpinBox *>())
         connect(number, qOverload<int>(&QSpinBox::valueChanged), this, &replayCallout::requestSettingsSave);
-    for (auto *choice : {ui->sceneLineEdit, ui->replaySourceNameEdit, ui->matches->vlcName})
+    for (auto *choice : {ui->sceneLineEdit, ui->replaySourceNameEdit, ui->matches->vlcName, ui->desktopMuteSource, ui->micMuteSource})
         connect(choice, qOverload<int>(&QComboBox::currentIndexChanged), this, &replayCallout::requestSettingsSave);
     connect(ui->sceneLineEdit, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] { ui->replaySourceNameEdit->refresh(); });
     connect(ui->library->speed, &QSlider::valueChanged, this, &replayCallout::requestSettingsSave);
@@ -307,6 +320,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
         obs_data_set_int(obj, "playerModeVersion", 1);
         obs_data_set_bool(obj, "vlcReplayPlayer", co->ui->library->usesVlc());
         obs_data_set_int(obj, "speedPercent", co->ui->library->speed->value());
+        obs_data_set_bool(obj, "returnSceneOnEnd", co->ui->library->returnScene->isChecked());
         obs_data_set_bool(obj, "librarySwitchScene", co->ui->library->switchScene->isChecked());
 		QString qstr;
 		std::string str;
@@ -321,7 +335,9 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 		qstr = co->ui->sceneLineEdit->text();
 		str = qstr.toStdString();
 		obs_data_set_string(obj, "scene", str.c_str());
-		obs_data_set_bool(obj, "Dmute", co->ui->muteDCheck->isChecked());
+		obs_data_set_string(obj, "desktopMuteSource", co->ui->desktopMuteSource->text().toUtf8().constData());
+        obs_data_set_string(obj, "micMuteSource", co->ui->micMuteSource->text().toUtf8().constData());
+        obs_data_set_bool(obj, "Dmute", co->ui->muteDCheck->isChecked());
 		obs_data_set_bool(obj, "Amute", co->ui->muteACheck->isChecked());
 
 	
@@ -366,6 +382,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
 			obj = obs_data_create();
 		}
 		co->ui->matches->load(obj);
+        co->ui->library->returnScene->setChecked(obs_data_get_bool(obj, "returnSceneOnEnd"));
         co->ui->library->switchScene->setChecked(obs_data_get_bool(obj, "librarySwitchScene"));
 
         obs_data_set_default_int(obj, "wait", 10);
@@ -387,7 +404,10 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
         }
 		qstr = QString::fromUtf8(obs_data_get_string(obj, "scene"));
 		co->ui->sceneLineEdit->setText(qstr);
-		co->ui->muteDCheck->setChecked(obs_data_get_bool(obj, "Dmute"));
+		co->ui->desktopMuteSource->setText(QString::fromUtf8(obs_data_get_string(obj, "desktopMuteSource")));
+        co->ui->micMuteSource->setText(QString::fromUtf8(obs_data_get_string(obj, "micMuteSource")));
+        co->ui->desktopMuteSource->refresh(); co->ui->micMuteSource->refresh();
+        co->ui->muteDCheck->setChecked(obs_data_get_bool(obj, "Dmute"));
 		co->ui->muteACheck->setChecked(obs_data_get_bool(obj, "Amute"));
 		
 		// Instant Replay XT extended settings

@@ -16,6 +16,7 @@ void instant_replay_save(obs_data_t *save_data, bool saving, void *);
 
 bool get_enabled();
 bool get_auto_switch();
+bool get_return_scene_on_end();
 void instant_replay_play_hotkey(void*, obs_hotkey_id, obs_hotkey_t*, bool);
 int get_wait();
 int get_pause();
@@ -25,6 +26,8 @@ std::string get_replay_trimmer();
 std::string get_scene();
 bool get_D_mute();
 bool get_A_mute();
+std::string get_desktop_mute_source();
+std::string get_mic_mute_source();
 
 // Instant Replay XT extended settings
 bool get_backup_enabled();

@@ -106,6 +106,9 @@ int main(int argc, char **argv) {
             assert(window->findChild<QSpinBox *>("clipSeconds1")->value() == 12);
             assert(window->findChild<QSpinBox *>("clipSeconds2")->value() == 45);
             assert(window->findChild<QSpinBox *>("clipSeconds3")->value() == 90);
+            assert(window->findChild<QCheckBox *>("returnSceneOnEnd")->isChecked());
+            assert(window->findChild<QComboBox *>("desktopMuteSource")->currentData().toString() == "Selected desktop");
+            assert(window->findChild<QComboBox *>("micMuteSource")->currentData().toString() == "Selected microphone");
             QEventLoop loop; QTimer::singleShot(650, &loop, &QEventLoop::quit); loop.exec();
             assert(saveRequests == before); // Loading must not queue an autosave.
             collectionName = "Other collection";
@@ -144,6 +147,11 @@ int main(int argc, char **argv) {
             assert(window->findChild<QSpinBox *>("clipSeconds1")->value() == 15);
             assert(window->findChild<QSpinBox *>("clipSeconds2")->value() == 30);
             assert(window->findChild<QSpinBox *>("clipSeconds3")->value() == 60);
+            auto *returnCheck = window->findChild<QCheckBox *>("returnSceneOnEnd");
+            assert(returnCheck && !returnCheck->isChecked());
+            returnCheck->setChecked(true);
+            static_cast<ObsChoice *>(window->findChild<QComboBox *>("desktopMuteSource"))->setText("Selected desktop");
+            static_cast<ObsChoice *>(window->findChild<QComboBox *>("micMuteSource"))->setText("Selected microphone");
             window->findChild<QSpinBox *>("clipSeconds1")->setValue(12);
             window->findChild<QSpinBox *>("clipSeconds2")->setValue(45);
             window->findChild<QSpinBox *>("clipSeconds3")->setValue(90);
@@ -207,12 +215,16 @@ int main(int argc, char **argv) {
                 Q_RETURN_ARG(bool, transferred), Q_ARG(QString, portable)) && transferred);
             window->findChild<QSpinBox *>("waitSpinBox")->setValue(11);
             window->findChild<QSpinBox *>("clipSeconds2")->setValue(300);
+            window->findChild<QCheckBox *>("returnSceneOnEnd")->setChecked(false);
             assert(QMetaObject::invokeMethod(dialog, "importConfig", Qt::DirectConnection,
                 Q_RETURN_ARG(bool, transferred), Q_ARG(QString, portable)) && transferred);
             assert(window->findChild<QSpinBox *>("waitSpinBox")->value() == 7);
             assert(window->findChild<QSpinBox *>("clipSeconds1")->value() == 12);
             assert(window->findChild<QSpinBox *>("clipSeconds2")->value() == 45);
             assert(window->findChild<QSpinBox *>("clipSeconds3")->value() == 90);
+            assert(window->findChild<QCheckBox *>("returnSceneOnEnd")->isChecked());
+            assert(window->findChild<QComboBox *>("desktopMuteSource")->currentData().toString() == "Selected desktop");
+            assert(window->findChild<QComboBox *>("micMuteSource")->currentData().toString() == "Selected microphone");
             const auto configPath = savedDir.filePath("config/settings.json");
             assert(SettingsStore(configPath).load("Test collection")["replayCallout_data"].toObject()["wait"] == 7);
             assert(SettingsStore(configPath + ".bak").load("Test collection")["replayCallout_data"].toObject()["wait"] == 11);
@@ -223,6 +235,9 @@ int main(int argc, char **argv) {
             assert(window->findChild<QSpinBox *>("clipSeconds1")->value() == 12);
             assert(window->findChild<QSpinBox *>("clipSeconds2")->value() == 45);
             assert(window->findChild<QSpinBox *>("clipSeconds3")->value() == 90);
+            assert(window->findChild<QCheckBox *>("returnSceneOnEnd")->isChecked());
+            assert(window->findChild<QComboBox *>("desktopMuteSource")->currentData().toString() == "Selected desktop");
+            assert(window->findChild<QComboBox *>("micMuteSource")->currentData().toString() == "Selected microphone");
             // Simulate OBS crashing before its own scene-collection file catches up.
             data = obs_data_get_obj(savedData, "replayCallout_data");
             obs_data_set_string(data, "scene", "Stale OBS scene"); obs_data_release(data);

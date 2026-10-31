@@ -34,9 +34,9 @@ public:
         if (!value.isObject() || value.toObject().isEmpty()) { error = "The config contains no replay settings."; return false; }
         const auto obj = value.toObject();
         auto invalid = [&error] { error = "The config contains invalid setting values. Nothing was imported."; return false; };
-        for (const auto *key : {"enable", "autoSwitch", "Dmute", "Amute", "backup", "matchMode", "vlcAutoRefresh", "vlcReplayPlayer", "librarySwitchScene"})
+        for (const auto *key : {"enable", "autoSwitch", "Dmute", "Amute", "backup", "matchMode", "vlcAutoRefresh", "vlcReplayPlayer", "librarySwitchScene", "returnSceneOnEnd"})
             if (obj.contains(key) && !obj[key].isBool()) return invalid();
-        for (const auto *key : {"scene", "sourceName", "replayFolder", "backupPath", "vlcSource"})
+        for (const auto *key : {"scene", "sourceName", "replayFolder", "backupPath", "vlcSource", "desktopMuteSource", "micMuteSource"})
             if (obj.contains(key) && !obj[key].isString()) return invalid();
         for (const auto *key : {"wait", "pause", "replay", "speedPercent", "activeMatch", "playerModeVersion"}) {
             if (!obj.contains(key)) continue;

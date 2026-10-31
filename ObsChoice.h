@@ -9,11 +9,12 @@
 class ObsChoice : public QComboBox {
 public:
     std::function<QStringList()> options;
+    QString emptyLabel = "Choose…";
     explicit ObsChoice(QWidget *parent = nullptr) : QComboBox(parent) { setEditable(false); }
     QString text() const { return currentData().toString(); }
     void setText(const QString &name) {
         int index = findData(name);
-        if (index < 0) { addItem(name.isEmpty() ? "Choose…" : name + " (unavailable)", name); index = count() - 1; }
+        if (index < 0) { addItem(name.isEmpty() ? emptyLabel : name + " (unavailable)", name); index = count() - 1; }
         setCurrentIndex(index);
     }
     void refresh() {
@@ -21,7 +22,7 @@ public:
         const QSignalBlocker block(this);
         auto names = options ? options() : QStringList{};
         names.removeDuplicates(); names.sort(Qt::CaseInsensitive);
-        clear(); addItem("Choose…", QString());
+        clear(); addItem(emptyLabel, QString());
         for (const auto &name : names) addItem(name, name);
         setText(selected);
     }
@@ -51,5 +52,21 @@ inline QStringList replaySourceNames(const QString &sceneName) {
         return true;
     }, &names);
     obs_source_release(source);
+    return names;
+}
+
+inline QStringList audioSourceNames() {
+    QStringList names;
+    auto collect = [](void *data, obs_source_t *source) {
+        if (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO)
+            static_cast<QStringList *>(data)->append(QString::fromUtf8(obs_source_get_name(source)));
+        return true;
+    };
+    obs_enum_sources(collect, &names);
+    for (unsigned channel = 1; channel <= 5; ++channel) {
+        auto *source = obs_get_output_source(channel);
+        if (source) { collect(&names, source); obs_source_release(source); }
+    }
+    names.removeDuplicates();
     return names;
 }
