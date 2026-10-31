@@ -6,9 +6,9 @@ Follow sections 1–5 for your first replay. Sections 6–9 cover optional match
 clip playlists, playback controls, transferring settings, and updates.
 
 **Version note:** the three clip-length hotkeys and grey/Active match-row styling
-are new in **2.0.21 (not yet released)**. They are not available in v2.0.20. Playlist controls are also being renamed: **Matches / Playlist** and **Playlist VLC source**
+are new in **2.0.21**. They are not available in v2.0.20. Playlist controls are named: **Matches / Playlist** and **Playlist VLC source**
 were labeled **Matches / BRB playlist** and **BRB VLC source** in older releases.
-Other instructions apply to v2.0.20 unless noted.
+This guide covers 2.0.22, including optional scene return and audio-source mute selection.
 
 ## 1. Install the plugin
 
@@ -273,7 +273,7 @@ restarts it. File saving must finish before playback can replace that file.
 A new clip starts in forward direction. Manually leaving the replay scene cancels
 its automatic return.
 
-**Return to previous scene when the clip ends** (new, not yet released) is an optional checkbox in Clip library, off by default. It applies to Play + switch, Play selected/double-click with scene switching enabled, and the Play latest replay button/hotkey. The previous scene is remembered when playback switches scenes. Replacing the clip keeps that return scene.
+**Return to previous scene when the clip ends** (2.0.22) is an optional checkbox in Clip library, off by default. It applies to Play + switch, Play selected/double-click with scene switching enabled, and the Play latest replay button/hotkey. The previous scene is remembered when playback switches scenes. Replacing the clip keeps that return scene.
 
 Return happens only when forward playback reaches the actual clip end. Pause, reverse, reaching the first frame, playback errors, and stopping do not trigger a return. Returning uses your OBS scene transition. Manually leaving the replay scene cancels the pending return; manually entering it does not arm a return. The checkbox is saved and included in config export/import; its value is applied when you start playback.
 
@@ -364,7 +364,7 @@ versions, operating system, player mode, exact error, and steps that caused it.
 Plugin messages contain **`[InstantReplayXT]`**. Submit the details through the
 [project issue tracker](https://github.com/Amaster15/InstantReplayXT-reMaster/issues).
 
-### Selecting audio to mute during replay (new, not yet released)
+### Selecting audio to mute during replay (2.0.22)
 
 Beside **Mute Desktop** and **Mute Mic/Aux**, choose the exact OBS audio source
 from the dropdown and enable its checkbox. Both lists include audio-capable

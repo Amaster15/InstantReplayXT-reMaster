@@ -19,9 +19,7 @@ a first-replay test, daily use, and troubleshooting.
 - **[Troubleshooting](SETUP.md#10-troubleshooting)**
 - **[Build instructions](BUILDING.md)** · **[Version history](HISTORY.md)**
 
-The **Clip hotkeys** tab and grey/active match-row styling in this checkout are
-**new in 2.0.21 (not yet released)**. They are not in v2.0.20. The setup guide marks these
-additions; use a release containing them before looking for the new controls.
+Version **2.0.22** adds optional return to the previous scene at the forward end of a clip and exact audio-source selectors for replay muting. Clip-length hotkeys and match-row styling were introduced in 2.0.21.
 
 ## Quick setup
 
