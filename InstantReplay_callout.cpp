@@ -13,6 +13,8 @@
 #include <QCloseEvent>
 #include <QHideEvent>
 #include <QFileDialog>
+#include <QDesktopServices>
+#include <QUrl>
 #include <algorithm>
 
 QPointer<replayCallout> co;
@@ -170,6 +172,10 @@ replayCallout::replayCallout(QWidget *parent)
             QMessageBox::No) == QMessageBox::Yes) importConfig(path);
     });
     ui->matches->settingsChanged = [this] { requestSettingsSave(); };
+    connect(findChild<QPushButton *>("donationButton"), &QPushButton::clicked, this, [] {
+        if (!QDesktopServices::openUrl(QUrl("https://buymeacoffee.com/amaster15")))
+            replay_status("Could not open your browser. Visit https://buymeacoffee.com/amaster15 to support development.");
+    });
     connect(findChild<QPushButton *>("saveSettingsButton"), &QPushButton::clicked, this, [this] {
         saveSettings();
     });

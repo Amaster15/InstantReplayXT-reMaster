@@ -100,9 +100,21 @@ public:
         tabs->addTab(library, "Clip library");
         auto *saveRow = new QHBoxLayout;
         auto *saveNote = new QLabel("Changes save to a separate config file as you edit.", replayCallout);
-        saveNote->setObjectName("settingsSaveStatus"); saveNote->setWordWrap(true); saveRow->addWidget(saveNote, 1);
+        saveNote->setObjectName("settingsSaveStatus"); saveNote->setWordWrap(true);
+        outer->addWidget(saveNote);
+        saveRow->addStretch();
         auto *saveSettings = new QPushButton("Save settings", replayCallout);
-        saveSettings->setObjectName("saveSettingsButton"); saveRow->addWidget(saveSettings);
+        saveSettings->setObjectName("saveSettingsButton");
+        auto *donate = new QPushButton("Buy me a coffee", replayCallout);
+        donate->setObjectName("donationButton");
+        donate->setToolTip("Support development — opens buymeacoffee.com/amaster15 in your browser.");
+        donate->setAccessibleName("Buy me a coffee — support Instant Replay XT development");
+        donate->setAutoDefault(false);
+        donate->setStyleSheet("QPushButton { background-color: #00ff00; color: #000000; border: 1px solid #168016; border-radius: 4px; padding: 0px 8px; } QPushButton:hover { background-color: #68ff68; } QPushButton:pressed { background-color: #00cc00; } QPushButton:focus { border: 2px solid #000000; }");
+        donate->setFixedHeight(saveSettings->sizeHint().height());
+        saveRow->addWidget(donate);
+        saveRow->addWidget(saveSettings);
+        QWidget::setTabOrder(donate, saveSettings);
         auto *exportConfig = new QPushButton("Export config…", replayCallout);
         exportConfig->setObjectName("exportConfigButton"); saveRow->addWidget(exportConfig);
         auto *importConfig = new QPushButton("Import config…", replayCallout);
@@ -258,7 +270,7 @@ public:
 
 	void retranslateUi(QDialog *replayCallout)
 	{
-		replayCallout->setWindowTitle("Instant Replay XT 2.0.22");
+		replayCallout->setWindowTitle("Instant Replay XT 2.0.23");
 		enableLabel->setText(QApplication::translate("replayCallout", "Enable", Q_NULLPTR));
 		waitLabel->setText(QApplication::translate("replayCallout", "WritePause", Q_NULLPTR));
 		pauseLabel->setText(QApplication::translate("replayCallout", "TransitionPause", Q_NULLPTR));
