@@ -27,8 +27,8 @@ builds its SDK, then builds the plugin. OBS's bootstrap downloads and verifies i
 and several GB of disk space. Output:
 
 ```text
-artifacts/InstantReplayXT-2.0.22-obs31-windows-x64.zip
-artifacts/InstantReplayXT-2.0.22-obs31-windows-x64.zip.sha256
+artifacts/InstantReplayXT-2.0.23-obs31-windows-x64.zip
+artifacts/InstantReplayXT-2.0.23-obs31-windows-x64.zip.sha256
 ```
 
 Before packaging, the script loads the compiled module to verify native dependencies,

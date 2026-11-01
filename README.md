@@ -19,7 +19,7 @@ a first-replay test, daily use, and troubleshooting.
 - **[Troubleshooting](SETUP.md#10-troubleshooting)**
 - **[Build instructions](BUILDING.md)** · **[Version history](HISTORY.md)**
 
-Version **2.0.22** adds optional return to the previous scene at the forward end of a clip and exact audio-source selectors for replay muting. Clip-length hotkeys and match-row styling were introduced in 2.0.21.
+Version **2.0.23** adds a compact, optional **Buy me a coffee** button beside Save settings. Version **2.0.22** added optional return to the previous scene at the forward end of a clip and exact audio-source selectors for replay muting. Clip-length hotkeys and match-row styling were introduced in 2.0.21.
 
 ## Quick setup
 
