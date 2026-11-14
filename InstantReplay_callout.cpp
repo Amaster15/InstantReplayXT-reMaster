@@ -172,6 +172,7 @@ replayCallout::replayCallout(QWidget *parent)
             QMessageBox::No) == QMessageBox::Yes) importConfig(path);
     });
     ui->matches->settingsChanged = [this] { requestSettingsSave(); };
+    ui->library->favoritesChanged = [this] { requestSettingsSave(); };
     connect(findChild<QPushButton *>("donationButton"), &QPushButton::clicked, this, [] {
         if (!QDesktopServices::openUrl(QUrl("https://buymeacoffee.com/amaster15")))
             replay_status("Could not open your browser. Visit https://buymeacoffee.com/amaster15 to support development.");
@@ -327,6 +328,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
         obs_data_set_bool(obj, "vlcReplayPlayer", co->ui->library->usesVlc());
         obs_data_set_int(obj, "speedPercent", co->ui->library->speed->value());
         obs_data_set_bool(obj, "returnSceneOnEnd", co->ui->library->returnScene->isChecked());
+        obs_data_set_string(obj, "clipFavorites", co->ui->library->saveFavorites().constData());
         obs_data_set_bool(obj, "librarySwitchScene", co->ui->library->switchScene->isChecked());
 		QString qstr;
 		std::string str;
@@ -426,6 +428,7 @@ static void save_replay_callout(obs_data_t *save_data, bool saving, void *)
         obs_data_set_default_int(obj, "speedPercent", 100);
         co->ui->library->speed->setValue(int(obs_data_get_int(obj, "speedPercent")));
         co->ui->sceneLineEdit->refresh(); co->ui->replaySourceNameEdit->refresh(); co->ui->matches->vlcName->refresh();
+        co->ui->library->loadFavorites(obs_data_get_string(obj, "clipFavorites"));
         co->setProperty("loadingReplaySettings", false);
         co->configReady = !co->configCollection.isEmpty();
         QTimer::singleShot(0, co.data(), [collection = co->configCollection] {

@@ -19,11 +19,34 @@
 #include <functional>
 #include <algorithm>
 #include <QSignalBlocker>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include "ReplayPosition.h"
 
 class ClipPanel : public QWidget {
 public:
     QTableWidget *clips;
+    QCheckBox *favoritesOnly;
+    QSet<QString> favorites;
+    std::function<void()> favoritesChanged;
+    static QString favoriteKey(const QFileInfo &file) {
+        // An overwritten current-replay file is a new clip, not the old favorite.
+        return file.canonicalFilePath() + "\n" + QString::number(file.size()) + "\n" +
+            QString::number(file.lastModified().toMSecsSinceEpoch());
+    }
+    QByteArray saveFavorites() const {
+        QJsonArray array;
+        auto keys = favorites.values(); std::sort(keys.begin(), keys.end());
+        for (const auto &key : keys) array.append(key);
+        return QJsonDocument(array).toJson(QJsonDocument::Compact);
+    }
+    void loadFavorites(const QByteArray &json) {
+        favorites.clear();
+        for (const auto &value : QJsonDocument::fromJson(json).array())
+            if (value.isString()) favorites.insert(value.toString());
+        clips->setRowCount(0);
+        refreshClips();
+    }
     QCheckBox *switchScene;
     QCheckBox *returnScene;
     QSlider *speed;
@@ -112,8 +135,8 @@ public:
         auto *layout = new QVBoxLayout(this);
         auto *note = new QLabel("Saved clips from all configured backup / match folders (including subfolders), plus the current replay file. Enable backups to keep older clips.");
         note->setWordWrap(true); layout->addWidget(note);
-        clips = new QTableWidget(0, 5, this);
-        clips->setHorizontalHeaderLabels({"Clip", "Match / folder", "Saved", "", ""});
+        clips = new QTableWidget(0, 6, this);
+        clips->setHorizontalHeaderLabels({"Clip", "Match / folder", "Saved", "", "", "★"});
         clips->setSelectionBehavior(QAbstractItemView::SelectRows);
         clips->setSelectionMode(QAbstractItemView::SingleSelection);
         clips->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -122,11 +145,17 @@ public:
         clips->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
         clips->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
         clips->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+        clips->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+        clips->horizontalHeader()->moveSection(5, 0);
         layout->addWidget(clips);
         auto *buttons = new QHBoxLayout; layout->addLayout(buttons);
         auto *refresh = new QPushButton("Refresh clips", this);
         auto *playButton = new QPushButton("Play selected clip", this);
         buttons->addWidget(refresh); buttons->addWidget(playButton);
+        favoritesOnly = new QCheckBox("Favorites only", this);
+        favoritesOnly->setObjectName("favoritesOnly");
+        buttons->addWidget(favoritesOnly);
+        connect(favoritesOnly, &QCheckBox::toggled, this, [this] { refreshClips(); });
         switchScene = new QCheckBox("Switch scene for Play selected clip / double-click", this);
         layout->addWidget(switchScene);
         returnScene = new QCheckBox("Return to previous scene when the clip ends", this);
@@ -194,7 +223,7 @@ public:
         connect(debounce, &QTimer::timeout, this, [this] { if (changeSpeed) changeSpeed(speed->value()); });
         connect(refresh, &QPushButton::clicked, this, [this] { refreshClips(); });
         connect(playButton, &QPushButton::clicked, this, [this] { playSelected(); });
-        connect(clips, &QTableWidget::cellDoubleClicked, this, [this](int, int) { playSelected(); });
+        connect(clips, &QTableWidget::cellDoubleClicked, this, [this](int, int column) { if (column != 5) playSelected(); });
         auto *timer = new QTimer(this); timer->setInterval(2000);
         connect(timer, &QTimer::timeout, this, [this] { if (isVisible()) refreshClips(); }); timer->start();
     }
@@ -220,7 +249,9 @@ public:
             if (!file.isFile()) return;
             auto path = file.canonicalFilePath();
             if (path.isEmpty() || seen.contains(path)) return;
-            seen.insert(path); entries.append({file, label, path});
+            seen.insert(path);
+            if (favoritesOnly->isChecked() && !favorites.contains(favoriteKey(file))) return;
+            entries.append({file, label, path});
         };
         if (latest) { auto path = latest(); if (!path.isEmpty()) add(QFileInfo(path), "Current replay"); }
         if (folders) for (const auto &folder : folders()) {
@@ -244,6 +275,7 @@ public:
         for (int row = 0; unchanged && row < entries.size(); ++row) {
             const auto &e = entries[row];
             unchanged = clips->item(row, 0) && clips->item(row, 0)->data(Qt::UserRole).toString() == e.path &&
+                clips->item(row, 0)->data(Qt::UserRole + 1).toString() == favoriteKey(e.file) &&
                 clips->item(row, 1)->text() == e.label &&
                 clips->item(row, 2)->text() == e.file.lastModified().toString("yyyy-MM-dd HH:mm:ss");
         }
@@ -255,7 +287,26 @@ public:
         for (int row = 0; row < entries.size(); ++row) {
             const auto &e = entries[row];
             auto *name = new QTableWidgetItem(e.file.fileName()); name->setData(Qt::UserRole, e.path); name->setToolTip(e.path);
+            const auto key = favoriteKey(e.file);
+            name->setData(Qt::UserRole + 1, key);
             clips->setItem(row, 0, name);
+            auto *star = new QPushButton(clips);
+            star->setCheckable(true); star->setChecked(favorites.contains(key));
+            star->setMinimumSize(32, 30);
+            auto styleStar = [star, filename = e.file.fileName()](bool marked) {
+                star->setText(marked ? "★" : "☆");
+                star->setToolTip(marked ? "Remove from favorites" : "Mark as favorite");
+                star->setAccessibleName((marked ? "Unfavorite " : "Favorite ") + filename);
+            };
+            styleStar(star->isChecked());
+            connect(star, &QPushButton::clicked, this, [this, key, styleStar](bool marked) {
+                if (marked) favorites.insert(key); else favorites.remove(key);
+                styleStar(marked);
+                if (favoritesChanged) favoritesChanged();
+                // Refresh after the click finishes, since filtering may remove this button.
+                QTimer::singleShot(0, this, [this] { refreshClips(); });
+            });
+            clips->setCellWidget(row, 5, star);
             auto *label = new QTableWidgetItem(e.label); label->setToolTip(e.path); clips->setItem(row, 1, label);
             clips->setItem(row, 2, new QTableWidgetItem(e.file.lastModified().toString("yyyy-MM-dd HH:mm:ss")));
             auto *playHere = new QPushButton(clips);

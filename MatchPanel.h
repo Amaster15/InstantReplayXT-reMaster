@@ -72,16 +72,21 @@ public:
         auto *selection = new QHBoxLayout; layout->addLayout(selection);
         auto *use = new QPushButton("Use selected match", this);
         auto *next = new QPushButton("Next match", this);
-        selection->addWidget(use); selection->addWidget(next);
+        auto *reset = new QPushButton("Reset matches", this);
+        next->setObjectName("nextMatchButton");
+        reset->setObjectName("resetMatchesButton");
+        reset->setToolTip("Re-enable completed matches. Manually disabled folders stay off; the active match stays selected.");
+        selection->addWidget(use); selection->addWidget(next); selection->addWidget(reset);
         connect(use, &QPushButton::clicked, this, [this] {
             int row = folders->currentRow();
             if (usable(row)) { active = row; showActive(); requestRefresh(); }
             else status->setText("Select an enabled match with a folder.");
         });
-        connect(next, &QPushButton::clicked, this, [this] { if (active >= 0) { selectNext(active); requestRefresh(); } else status->setText("Choose an enabled match with Use selected match."); });
+        connect(next, &QPushButton::clicked, this, [this] { advanceMatch(); });
+        connect(reset, &QPushButton::clicked, this, [this] { resetMatches(); });
         activeLabel = new QLabel(this); activeLabel->setTextFormat(Qt::PlainText); activeLabel->setWordWrap(true);
         layout->addWidget(activeLabel);
-        auto *note = new QLabel("Normally keep one match active for all its clips, then click Next match. The active match is bold. Unchecked rows are grey and marked Off; they are skipped until checked again. Next match does not uncheck earlier matches. At the end, select a match explicitly; the list does not wrap. Each folder has its own backup numbering. Removing a row keeps its files.", this);
+        auto *note = new QLabel("Next match disables the current folder and marks it Completed in grey, then activates the next checked folder. The active match is bold. Reset matches re-enables completed folders; manually disabled folders stay Off and the active match stays selected. At the end, backups pause until you enable and select a match; the list does not wrap. Each folder keeps its clips and backup numbering.", this);
         note->setWordWrap(true); layout->addWidget(note);
         auto *vlcRow = new QHBoxLayout; layout->addLayout(vlcRow);
         vlcRow->addWidget(new QLabel("Playlist VLC source", this));
@@ -91,8 +96,12 @@ public:
         status = new QLabel("Choose a VLC Video Source to manage its playlist from these folders.", this);
         status->setTextFormat(Qt::PlainText); status->setWordWrap(true); layout->addWidget(status);
         connect(refresh, &QPushButton::clicked, this, [this] { refreshVlc(true); });
-        connect(folders, &QTableWidget::itemChanged, this, [this] {
+        connect(folders, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
             if (loading) return;
+            if (item->column() == 0 && item->checkState() == Qt::Checked) {
+                QSignalBlocker block(folders);
+                item->setData(Qt::UserRole, false);
+            }
             if (active >= 0 && !usable(active)) selectNext(active);
             showActive(); requestRefresh();
         });
@@ -131,6 +140,35 @@ public:
         active = -1; showActive();
         status->setText("No next enabled match. Choose a match or add a folder; backups are paused in match mode.");
     }
+    void advanceMatch() {
+        if (!usable(active)) {
+            status->setText("Choose an enabled match with Use selected match.");
+            return;
+        }
+        const int previous = active;
+        {
+            QSignalBlocker block(folders);
+            auto *item = folders->item(previous, 0);
+            item->setData(Qt::UserRole, true);
+            item->setCheckState(Qt::Unchecked);
+        }
+        selectNext(previous);
+        requestRefresh();
+    }
+    void resetMatches() {
+        {
+            QSignalBlocker block(folders);
+            for (int row = 0; row < folders->rowCount(); ++row) {
+                auto *item = folders->item(row, 0);
+                if (!item->data(Qt::UserRole).toBool()) continue;
+                item->setData(Qt::UserRole, false);
+                item->setCheckState(Qt::Checked);
+            }
+        }
+        showActive();
+        status->setText(usable(active) ? "Completed matches reset. The active match is unchanged." :
+            "Completed matches reset. Choose a match with Use selected match to resume backups.");
+    }
     void showActive() {
         updateRowStyles();
         if (!loading && settingsChanged) settingsChanged();
@@ -145,15 +183,17 @@ public:
             auto *check = folders->item(row, 0);
             if (!check) continue;
             const bool off = check->checkState() != Qt::Checked;
+            const bool completed = off && check->data(Qt::UserRole).toBool();
             const bool current = enabled->isChecked() && row == active && usable(row);
-            check->setText(off ? "Off" : current ? "Active" : usable(row) ? "Ready" : "No folder");
+            check->setText(completed ? "Completed" : off ? "Off" : current ? "Active" : usable(row) ? "Ready" : "No folder");
             for (int col = 0; col < folders->columnCount(); ++col) {
                 auto *item = folders->item(row, col);
                 if (!item) continue;
                 item->setData(Qt::ForegroundRole, off ? QVariant(folders->palette().brush(QPalette::Disabled, QPalette::Text)) : QVariant());
                 auto font = folders->font(); font.setBold(current); font.setItalic(off);
                 item->setFont(font);
-                item->setToolTip(off ? "Off — skipped when advancing matches. Check Enabled to use this folder again." :
+                item->setToolTip(completed ? "Completed — backups disabled for this match. Use Reset matches or check Enabled to use it again." :
+                    off ? "Off — skipped when advancing matches. Check Enabled to use this folder again." :
                     current ? "Active backup folder for new clips." : usable(row) ?
                     "Enabled — available for selection or Next match." : "Choose a backup folder before using this match.");
             }
@@ -221,6 +261,7 @@ public:
         for (int row = 0; row < folders->rowCount(); ++row) {
             auto *item = obs_data_create();
             obs_data_set_bool(item, "enabled", folders->item(row, 0)->checkState() == Qt::Checked);
+            obs_data_set_bool(item, "completed", folders->item(row, 0)->data(Qt::UserRole).toBool());
             obs_data_set_string(item, "name", folders->item(row, 1)->text().toUtf8().constData());
             obs_data_set_string(item, "path", folders->item(row, 2)->text().toUtf8().constData());
             obs_data_array_push_back(array, item); obs_data_release(item);
@@ -234,6 +275,8 @@ public:
         for (size_t i = 0; i < obs_data_array_count(array); ++i) {
             auto *item = obs_data_array_item(array, i);
             addRow(QString::fromUtf8(obs_data_get_string(item, "name")), QString::fromUtf8(obs_data_get_string(item, "path")), obs_data_get_bool(item, "enabled"));
+            folders->item(int(i), 0)->setData(Qt::UserRole,
+                !obs_data_get_bool(item, "enabled") && obs_data_get_bool(item, "completed"));
             obs_data_release(item);
         }
         obs_data_array_release(array);
