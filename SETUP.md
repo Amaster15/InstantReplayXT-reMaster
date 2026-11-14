@@ -219,16 +219,22 @@ If a step fails, use [Troubleshooting](#10-troubleshooting) before using the set
 5. Select your first enabled match and click **Use selected match**. Confirm the
    **Active:** label below the list shows the correct folder.
 6. Save clips throughout that match. The folder stays active until you change it.
-7. Click **Next match** when ready. It skips unchecked rows and does not wrap at
-   the end. Once there is no next match, match backups pause; the main replay
+7. Click **Next match** when ready. It unchecks the current match and marks it
+   **Completed**, then activates the next checked folder. It does not wrap at the end. Once there is no next match, match backups pause; the main replay
    still saves. Select an enabled match explicitly or add a new folder to resume.
 
-**2.0.21 visual indicators:** the active row is bold and marked **Active**;
-unchecked rows are grey/italic and marked **Off**; other usable rows show **Ready**.
-Next match moves the row highlight to the new active folder. It does not uncheck
-earlier matches automatically. Uncheck a row to disable it; check it again to make
-it available. Disabled folders remain in the Clip library so their clips can still
-be replayed.
+**Visual indicators:** the active row is bold and marked **Active**. Completed
+matches are unchecked, grey/italic, and marked **Completed**. Manually unchecked
+rows are grey/italic and marked **Off**; other usable rows show **Ready**.
+Next match moves the row highlight to the new active folder.
+
+**Reset matches** re-enables completed folders and clears their completed styling.
+It leaves manually disabled folders off and keeps the current active match. If you
+have reached the end of the list, reset and then click **Use selected match** on
+the folder you want to start with. You can also check a completed row individually
+to make it available again. Completion is saved in the plugin config and included
+in config export/import. Reset does not delete clips or reset backup numbering.
+Disabled folders remain in the Clip library so their clips can still be replayed.
 
 Each folder continues its own backup numbering. **Remove from list** removes only
 its configuration entry, not files on disk. The library stops scanning a removed
@@ -383,3 +389,16 @@ their previous mute state when playback finishes or is cancelled. A source that
 was already muted stays muted; selecting the same source twice restores it once.
 OBS source muting affects that source everywhere it is used, so avoid choosing
 the replay's own audio source unless you want a silent replay.
+
+### Mark favorite clips
+
+In **Clip library**, click the outline star beside a clip to mark it as a favorite.
+A filled star means it is marked. Click it again to remove the mark. Enable
+**Favorites only** to show just your best clips; the normal play and play-with-scene-switch
+buttons work on these clips too. Clear the filter to see all clips again.
+
+Favorites save with the plugin config and are included in config export/import.
+They identify the clip by its full path, size, and modification time. Replacing
+or editing a file clears its visible star, so a newly overwritten current replay
+does not inherit the previous clip's favorite. Moving clips to another path
+requires marking them again. Use backup folders to keep favorite clips permanently.

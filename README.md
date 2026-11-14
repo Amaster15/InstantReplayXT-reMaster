@@ -19,7 +19,7 @@ a first-replay test, daily use, and troubleshooting.
 - **[Troubleshooting](SETUP.md#10-troubleshooting)**
 - **[Build instructions](BUILDING.md)** · **[Version history](HISTORY.md)**
 
-Version **2.0.23** adds a compact, optional **Buy me a coffee** button beside Save settings. Version **2.0.22** added optional return to the previous scene at the forward end of a clip and exact audio-source selectors for replay muting. Clip-length hotkeys and match-row styling were introduced in 2.0.21.
+Version **2.0.24** adds clip favorites with a favorites-only filter, completed match indicators, and Reset matches. Version **2.0.23** added a compact, optional **Buy me a coffee** button beside Save settings. Version **2.0.22** added optional return to the previous scene at the forward end of a clip and exact audio-source selectors for replay muting. Clip-length hotkeys and match-row styling were introduced in 2.0.21.
 
 ## Quick setup
 
@@ -47,7 +47,7 @@ folder and replay video folders are separate settings.
 | Save clip presets (2.0.21) | Three configurable hotkeys, initially 15, 30 and 60 seconds, with fast trimming. |
 | Play clips | Separate Play and Play + switch icons; optional automatic scene switching after saving. |
 | Slow motion | 10–200% speed, quick presets, Pause/Resume, scrubbing, and VLC-only reverse. |
-| Match folders | Stay on one match until Next match; disabled rows are skipped. |
+| Match folders | Next match marks the previous folder Completed and activates the next enabled folder; Reset matches re-enables completed folders. |
 | Clip playlist | Refresh a dedicated OBS VLC Video Source from the active match folder. |
 | Settings | Autosaved per scene collection, with config export/import and a recovery backup. |
 | Updates | Manually check GitHub, then queue installation after OBS closes. |

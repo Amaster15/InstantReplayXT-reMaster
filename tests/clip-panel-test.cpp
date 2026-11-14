@@ -91,6 +91,32 @@ int main(int argc, char **argv) {
     panel.switchScene->setChecked(false); playSwitch->click();
     assert(played == two && switched);
     panel.refreshClips(); assert(panel.clips->cellWidget(row, 3) == playHere);
+    int favoriteSaves = 0;
+    panel.favoritesChanged = [&] { ++favoriteSaves; };
+    auto *star = qobject_cast<QPushButton *>(panel.clips->cellWidget(row, 5));
+    assert(star && !star->isChecked());
+    star->click(); assert(star->isChecked() && favoriteSaves == 1);
+    const auto savedFavorites = panel.saveFavorites();
+    panel.favoritesOnly->setChecked(true);
+    assert(panel.clips->rowCount() == 1);
+    assert(panel.clips->item(0, 0)->data(Qt::UserRole).toString() == two);
+    panel.clips->selectRow(0); panel.playSelected(); assert(played == two);
+    {
+        ClipPanel restored; restored.folders = panel.folders;
+        restored.loadFavorites(savedFavorites);
+        restored.favoritesOnly->setChecked(true);
+        assert(restored.clips->rowCount() == 1);
+        qobject_cast<QPushButton *>(restored.clips->cellWidget(0, 5))->click();
+        restored.refreshClips(); assert(restored.clips->rowCount() == 0);
+        restored.loadFavorites(savedFavorites);
+        assert(restored.clips->rowCount() == 1);
+        QFile replacement(two); assert(replacement.open(QIODevice::Append));
+        replacement.write("new contents"); replacement.close();
+        restored.refreshClips(); assert(restored.clips->rowCount() == 0);
+    }
+    panel.favoritesOnly->setChecked(false);
+    row = panel.clips->item(0, 0)->data(Qt::UserRole).toString() == two ? 0 : 1;
+    assert(!qobject_cast<QPushButton *>(panel.clips->cellWidget(row, 5))->isChecked());
     panel.clips->selectRow(row);
     assert(QFile::remove(two)); played.clear(); panel.playSelected(); assert(played.isEmpty());
     panel.refreshClips(); assert(panel.clips->rowCount() == 1 && panel.selectedPath().isEmpty());
